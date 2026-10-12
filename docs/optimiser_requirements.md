@@ -24,7 +24,7 @@ finger / hand position), priced by the effort of both the fretting hand and the 
 | R6 | **Meaningful alternatives:** an alternative counts by its *effect* (lower difficulty and/or a different technique profile, including the effect on following notes), not by how many notes changed. One-note changes count if they produce a meaningful difference in how the difficulty changes, future notes change, or different techniques become in/compatible |
 | R7 | **No technique favouritism:** generation never drops or ranks down a realisation for suiting one technique badly; it's still playable, on a different avenue. Technique compatibility (e.g. economy 24 %, alternate 98 %) is computed after generation. A technique is favoured only once the user states a preference, and preferences re-rank the generated set |
 | R8 | **Hard vs soft, nothing impossible by assumption:** hard feasibility kept separate from soft playability cost. Every "impossible" rule or threshold needs Jae's approval; very hard = expensive, never deleted |
-| R9 | **Physical geometry:** stretch measured in mm (frets narrow up the neck), not fret count. Scale length pending decision |
+| R9 | **Physical geometry:** stretch measured in mm (frets narrow up the neck), not fret count. Scale length: 648 mm by default, a guitar setup setting |
 | R10 | **Decomposable cost:** per-term, per-transition breakdown, split by hand, reusable by the difficulty readout |
 | R11 | **Instrument setup as input:** per-string tuning (incl. drop tunings), 6 or 7 strings. Capo not required for now |
 | R12 | **Optimality over speed:** CPU, thousands of phrases; spend compute on a richer model rather than instant response |
@@ -161,7 +161,8 @@ finger / hand position), priced by the effort of both the fretting hand and the 
 - Equal-temperament fret positions: distance from nut to fret n = L · (1 − 2^(−n/12)),
   L = scale length.
 - Example (L = 648 mm): 3 frets span ≈ 97 mm near the nut vs ≈ 52 mm at fret 12.
-- Open: scale length (648 mm was proposed as a default setting; not decided).
+- Scale length: 648 mm (25.5") by default, set per guitar in `configs/optimiser/guitar_setup/`
+  (decided 2026-10-12).
 - Novelty note: mm distances alone are not new (piano tools, Rodríguez & Klapuri, Heijink);
   combining mm with string/fret choice and timing is what the survey didn't find.
 
