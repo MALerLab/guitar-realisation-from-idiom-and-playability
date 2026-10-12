@@ -58,10 +58,12 @@
 ## Vocabulary (one word per concept, in code and docs)
 - **realisation** — one fingering (string + fret per note, possibly finger / hand position) plus
   its **pick plan** (stroke per note: down, up, or none for a hammer-on / pull-off) for a fixed
-  pitch + timing passage. Both are chosen in one search.
+  pitch + timing passage. Both are chosen in one search. A set of realisations differs in
+  fingering; the pick plan shows the picking hand shaped each fingering.
 - **string numbers** — strings are named 1–6 (7 on a 7-string), 1 = highest-pitched (thin e),
   as in GP and `gp_parser.py`. Never letter names (e/B/G…) in code, docs or chat.
-- **technique compatibility** — which techniques a realisation supports.
+- **technique compatibility** — which techniques a realisation's fingering supports, re-planned
+  under each technique.
 - **reference coverage** — does the candidate set contain the trusted human realisation,
   or something materially similar?
 - **technique coverage** — does ≥1 plausible candidate preserve the withheld technique?
