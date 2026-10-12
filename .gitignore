@@ -31,3 +31,6 @@ docs/survey/optimisers/*
 
 # Benchmark song list: local only
 docs/benchmark_songs.md
+
+# Papers: their own private repo, not tracked here
+/papers/
