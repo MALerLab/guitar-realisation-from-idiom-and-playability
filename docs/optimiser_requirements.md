@@ -10,6 +10,8 @@ finger / hand position), priced by the effort of both the fretting hand and the 
   "no technique favouritism"; requirements reordered by importance.
   - Old → new ids: R1→R1 · R2→R11 · R3→R5 · R4→R6 · R5→R7 · R6→R10 · R7→R8 · R8→R9 ·
     R9→R4 · R10→R3 · R11→R12 · R12→R13 · R2 is new. The survey files use the old ids.
+- Revision 2026-10-12: the set's realisations differ in fingering; the same fingering with
+  another pick plan is not a new realisation. Compatibility is scored per fingering.
 - Mirror: Notion hub → Optimiser → Requirements. Keep both in sync; Assume repo version is up-to-date.
 
 ## Requirements
@@ -17,10 +19,10 @@ finger / hand position), priced by the effort of both the fretting hand and the 
 | id | requirement |
 |---|---|
 | R1 | **Input:** monophonic note sequence (pitch + onset + duration per note), the tempo, and the instrument setup (R11). The source tab's fingering and pickstroke marks never enter generation. Its articulation marks (e.g. bends, slides, hammer-ons / pull-offs, left-hand taps) enter only where enforced: a switch per articulation type, settable per passage, makes a marked articulation a fixed part of the music; switched off, the mark is hidden and the articulation is decided by playability (R2) |
-| R2 | **Picking-hand model, equal weight:** the cost models the picking hand with the same importance as the fretting hand; this is the project's core. A realisation = fingering + pick plan, chosen together in one search, because each hand's best choice depends on the other. Tracks the last stroke direction, so string crossings, string skips and sweeps are priced. Default: the player is equally proficient in every picking technique. Legato (hammer-on / pull-off) is functional: chosen where it makes the passage easier to play, never added for style. Stylistic legato enters only as an enforced articulation (R1). Picking-hand modes: pick, hybrid picking and right-hand tapping are all realisation options; none is left out because fewer players use it. Harmonics (either hand) are an articulation, not an alternate way of playing, and are out for now |
+| R2 | **Picking-hand model, equal weight:** the cost models the picking hand with the same importance as the fretting hand; this is the project's core. A realisation = fingering + pick plan, chosen together in one search, because each hand's best choice depends on the other. The pick plan is part of the realisation to record that the picking hand shaped the fingering, not as a separate source of alternatives. Tracks the last stroke direction, so string crossings, string skips and sweeps are priced. Default: the player is equally proficient in every picking technique. Legato (hammer-on / pull-off) is functional: chosen where it makes the passage easier to play, never added for style. Stylistic legato enters only as an enforced articulation (R1). Picking-hand modes: pick, hybrid picking and right-hand tapping are all realisation options; none is left out because fewer players use it. Harmonics (either hand) are an articulation, not an alternate way of playing, and are out for now |
 | R3 | **Fretting-hand state:** tracks both the fingers and the hand (wrist), for different things |
 | R4 | **Timing-aware:** a hand movement (fretting-hand shift, picking-hand string crossing) costs more when there is less time to make it. This involves note-density + tempo |
-| R5 | **Several realisations:** returns a set, not one realisation |
+| R5 | **Several realisations:** returns a set of realisations with distinct fingerings, not one realisation |
 | R6 | **Meaningful alternatives:** an alternative counts by its *effect* (lower difficulty and/or a different technique profile, including the effect on following notes), not by how many notes changed. One-note changes count if they produce a meaningful difference in how the difficulty changes, future notes change, or different techniques become in/compatible |
 | R7 | **No technique favouritism:** generation never drops or ranks down a realisation for suiting one technique badly; it's still playable, on a different avenue. Technique compatibility (e.g. economy 24 %, alternate 98 %) is computed after generation. A technique is favoured only once the user states a preference, and preferences re-rank the generated set |
 | R8 | **Hard vs soft, nothing impossible by assumption:** hard feasibility kept separate from soft playability cost. Every "impossible" rule or threshold needs Jae's approval; very hard = expensive, never deleted |
@@ -64,7 +66,8 @@ finger / hand position), priced by the effort of both the fretting hand and the 
   fretting-hand state (R3) plus the last stroke direction.
 - Default: the player is equally proficient in every picking technique. Under it, the pick plan
   is mostly determined by the fingering (the most ergonomic plan), with some room for variants.
-  - The same fingering with a different pick plan can be its own alternative (R6).
+  - The same fingering with a different pick plan is not a new realisation (R5). Other pick
+    plans for one fingering belong to the technique readout (R7).
 - Example, A minor arpeggio A3 C4 E4 A4 C5:
   - sweep shape 12-10-9-10-8 on strings A D G B e: one note per string, 4 string crossings.
     All downstrokes → the crossings are nearly free; strict down-up → every crossing is awkward.
@@ -139,9 +142,9 @@ finger / hand position), priced by the effort of both the fretting hand and the 
   technique suits it badly.
 - Generation prices motions (stroke direction, string crossings). Technique names (alternate,
   economy, sweep) are patterns the readout spots in the pick plan afterwards.
-- Open: is compatibility scored per fingering (re-planned under each technique) or per
-  realisation? Same question for the difficulty readout's "easiest viable realisation under a
-  chosen technique".
+- Decided 2026-10-12: compatibility is scored per fingering, re-planned under each technique.
+- Open: is the difficulty readout's "easiest viable realisation under a chosen technique" also
+  scored per fingering?
 - Compatibility doesn't always need computing from scratch: if generation keeps its reasoning
   (pick plan, cost breakdown), the technique readout may reuse it.
 - User preferences (per technique, per mode: drill vs learn easily) = next stage of the project.
