@@ -33,7 +33,7 @@ docs/survey/optimisers/*
 docs/benchmark_songs.md
 docs/mantra.md
 
-# Claude Code files: live in ~/storage/grip/, linked in by setup_worktree.sh
+# Claude Code files: kept in the main checkout; worktrees link to them via setup_worktree.sh
 /CLAUDE.md
 /todo.md
 

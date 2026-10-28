@@ -34,7 +34,14 @@ link manifests/proggp_songs.parquet manifests/proggp_songs.parquet
 link manifests/proggp_tracks.parquet manifests/proggp_tracks.parquet
 link name_maps/proggp_artist_title_map_v0.1.yaml data/name_maps/proggp_artist_title_map_v0.1.yaml
 link optimiser_runs data/optimiser_runs
-link CLAUDE.md CLAUDE.md
-link todo.md todo.md
+
+# 5. CLAUDE.md + todo.md: untracked, kept in the main checkout; every worktree links to its copy
+MAIN_CHECKOUT="$(git worktree list --porcelain | awk 'NR==1 {print $2}')"  # git lists the main checkout first
+if [ "$PWD" != "$MAIN_CHECKOUT" ]; then
+  for file in CLAUDE.md todo.md; do
+    if [ -e "$file" ] && [ ! -L "$file" ]; then echo "refuse: $file is a real file, not a link"; continue; fi
+    ln -sfn "$MAIN_CHECKOUT/$file" "$file"  # -s symlink, -f replace an old link, -n treat an old link as a file
+  done
+fi
 
 echo "worktree ready"
