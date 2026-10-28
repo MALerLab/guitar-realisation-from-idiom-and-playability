@@ -34,5 +34,7 @@ link manifests/proggp_songs.parquet manifests/proggp_songs.parquet
 link manifests/proggp_tracks.parquet manifests/proggp_tracks.parquet
 link name_maps/proggp_artist_title_map_v0.1.yaml data/name_maps/proggp_artist_title_map_v0.1.yaml
 link optimiser_runs data/optimiser_runs
+link CLAUDE.md CLAUDE.md
+link todo.md todo.md
 
 echo "worktree ready"

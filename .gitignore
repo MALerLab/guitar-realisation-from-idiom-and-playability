@@ -29,8 +29,13 @@ docs/survey/coordinator-report-*.md
 docs/survey/optimisers/*
 !docs/survey/optimisers/brief.md
 
-# Benchmark song list: local only
+# Benchmark song list + mantra: local only
 docs/benchmark_songs.md
+docs/mantra.md
+
+# Claude Code files: live in ~/storage/grip/, linked in by setup_worktree.sh
+/CLAUDE.md
+/todo.md
 
 # Papers: their own private repo, not tracked here
 /papers/
