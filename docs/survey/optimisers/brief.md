@@ -15,7 +15,7 @@
 2. Read `docs/survey/protocol.md`, `docs/survey/schema.md`, and
    `docs/survey/run-2026-10-01-picking-sweep-brief.md` (the format precedent for a narrow sweep).
 3. Location: this is a new task, `claude/optimiser-survey` off `main`. Ask Jae: own worktree
-   (`../guitar-realisation-inference-and-profiling-CLAUDE-optimiser-survey`, the default rule) or a
+   (`../grip-CLAUDE-optimiser-survey`, the default rule) or a
    branch in the primary checkout. Echo folder + branch and wait for his yes.
 4. Save this brief as `docs/survey/optimisers/brief.md`.
 

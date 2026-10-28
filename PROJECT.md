@@ -1,4 +1,4 @@
-# PROJECT.md — guitar-realisation-inference-and-profiling (GRIP)
+# PROJECT.md — GRIP (Guitar Realisation from Idiom and Playability)
 <!-- Stable project facts for any coding agent. Claude Code reads this via CLAUDE.md,
      Codex via AGENTS.md. Agent-specific behaviour lives in those files, not here. -->
 
@@ -13,7 +13,7 @@
 - **Bloat:** long detail → `docs/*.md`, linked from here.
 
 ## Notion
-- Hub: **guitar-realisation-inference-and-profiling** — `3e3cb37787438058920dfb43c0fed996`
+- Hub: **GRIP : Guitar Realisation from Idiom and Playability** — `3e3cb37787438058920dfb43c0fed996`
   - the hub is the project definition; the old Project Definition page is retired (2026-10-28)
 - Read the hub before any planning or status work.
 
@@ -28,9 +28,10 @@
 - Untracked but needed file → store it under `~/storage/grip/`, add one `link` line to the script.
 
 ## Git remotes
+- Local checkout folder is `grip`; the GitHub repos carry the long name below.
 - One remote, `origin`: fetch from one URL, push to two. Both repos are **public**.
-  - fetch: `git@github.com:jae-gye/guitar-realisation-inference-and-profiling.git`
-  - push: the same URL + `git@github.com:MALerLab/guitar-realisation-inference-and-profiling.git`
+  - fetch: `git@github.com:jae-gye/guitar-realisation-from-idiom-and-playability.git`
+  - push: the same URL + `git@github.com:MALerLab/guitar-realisation-from-idiom-and-playability.git`
 - One `git push` updates both; there is no separate MALerLab remote to fetch from.
 - Check: `git remote -v` → 1 fetch line, 2 push lines.
 

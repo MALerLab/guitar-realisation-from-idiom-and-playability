@@ -1,5 +1,5 @@
 {
-  "name": "guitar-realisation-inference-and-profiling",
+  "name": "grip",
   "private": true,
   "description": "Node side of the GP parser: alphaTab reads Guitar Pro files for src/data/gp_parser.py",
   "dependencies": {

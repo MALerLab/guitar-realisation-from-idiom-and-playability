@@ -32,7 +32,7 @@ wheels = [
 ]
 
 [[package]]
-name = "guitar-realisation-inference-and-profiling"
+name = "grip"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
