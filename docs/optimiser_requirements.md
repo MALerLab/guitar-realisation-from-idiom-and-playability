@@ -4,6 +4,9 @@ What GRIP's own two-hand optimiser must do. The optimiser takes a note sequence 
 a set of playable realisations (fingering + pick plan: string, fret and stroke per note, possibly
 finger / hand position), priced by the effort of both the fretting hand and the picking hand.
 
+- **Status (2026-10-28): considered but provisional.** Reviewed and finalised only after the
+  existing-tools audit (open-source pitch → tab case study), e.g. R7's "never steer" may change:
+  technique-steered generation is on the table.
 - Origin: R1–R12 from the optimiser survey brief (`docs/survey/optimisers/brief.md`, 2026-10-03),
   revised with Jae on 2026-10-04 after the survey walkthrough.
 - Rewrite 2026-10-04: picking-hand model added; "technique-agnostic generation" replaced by

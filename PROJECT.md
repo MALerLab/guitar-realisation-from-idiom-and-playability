@@ -14,7 +14,7 @@
 
 ## Notion
 - Hub: **guitar-realisation-inference-and-profiling** — `3e3cb37787438058920dfb43c0fed996`
-- **Project Definition** — `3e2cb3778743805695c9f06c05097979`
+  - the hub is the project definition; the old Project Definition page is retired (2026-10-28)
 - Read the hub before any planning or status work.
 
 ## Environment
@@ -60,6 +60,15 @@
   its **pick plan** (stroke per note: down, up, or none for a hammer-on / pull-off) for a fixed
   pitch + timing passage. Both are chosen in one search. A set of realisations differs in
   fingering; the pick plan shows the picking hand shaped each fingering.
+- **tab** — the full record of a passage: notes + how they're played (string/fret, articulations,
+  pick strokes…), whatever the file format (GP, JSON, table).
+- **MIDI** — note-event files; a slice of a tab (pitch, timing; bends only as pitch curves). Never a tab.
+- **hand model** — GRIP's model of both hands (fretting + picking): fingers, spans in mm, positions,
+  timing. Never "physics".
+- **ergonomic cost** — what the hand model charges for a move.
+- **idiom** — the shapes and patterns guitarists actually use, and where they break a line into
+  chunks; learned from human tabs.
+- **chunk** — a run of notes the hand plays as one unit = shape (intervals + rhythm) + placement.
 - **string numbers** — strings are named 1–6 (7 on a 7-string), 1 = highest-pitched (thin e),
   as in GP and `gp_parser.py`. Never letter names (e/B/G…) in code, docs or chat.
 - **technique compatibility** — which techniques a realisation's fingering supports, re-planned
