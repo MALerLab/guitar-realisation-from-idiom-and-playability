@@ -1,11 +1,11 @@
-# Optimiser run v0.1: everything one run uses, in one file. Read by src/optimiser/run_optimiser.py.
+# Optimiser run v0.1: everything one run uses, in one file. Read by src/grip/pipelines/optimiser_run.py.
 # The three pointers name other config files (paths from the repo root); the rest are settings.
 version: "0.1"
 
 # Which guitar, cost knobs and GP parser this run uses
-guitar_setup: configs/optimiser/guitar_setup/default.yaml
+guitar_setup: configs/core/guitar_setup/default.yaml
 cost_config: configs/optimiser/optimiser_cost_v0.1.yaml
-gp_parser_config: configs/data/gp_parser_v0.1.yaml
+gp_parser_config: configs/formats/gp_parser_v0.1.yaml
 
 output:
   # Where `run_optimiser.py --save` writes one JSON file per run (path from the repo root).

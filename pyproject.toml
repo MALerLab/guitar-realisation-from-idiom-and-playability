@@ -4,10 +4,22 @@ version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
     "nodejs-wheel>=24.19.0",
+    "numpy>=2.4.6",
     "pandas>=3.0.6",
     "pyarrow>=25.0.1",
     "pyyaml>=6.0.3",
 ]
+
+# Commands: `uv run <name>` (thin wrappers in src/grip/cli/ and src/grip/apps/)
+[project.scripts]
+grip-optimise = "grip.cli.run_optimiser:main"
+grip-build-manifest = "grip.cli.build_gp_manifest:main"
+grip-viewer = "grip.apps.gp_viewer.server:main"
+
+# The package lives in src/grip/; uv installs it into .venv as editable (points at the files, edits show at once)
+[build-system]
+requires = ["uv_build>=0.11.29,<0.12"]
+build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
@@ -16,6 +28,4 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-# Repo root on sys.path so tests import `src.<subpackage>`
-pythonpath = ["."]
 testpaths = ["tests"]

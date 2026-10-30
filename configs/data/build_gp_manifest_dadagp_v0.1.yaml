@@ -1,5 +1,5 @@
 # GP manifest build for DadaGP v1.1: where its files are, how songs are found and named.
-# Read by src/data/build_gp_manifest.py. Output holds indexes and counts only, never musical content.
+# Read by src/grip/data/build_gp_manifest.py. Output holds indexes and counts only, never musical content.
 version: "0.1"
 
 # Written into every row's `dataset` column

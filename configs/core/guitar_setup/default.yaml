@@ -1,0 +1,11 @@
+# Guitar setup: the default guitar (6-string, standard tuning, 24 frets, 25.5" scale).
+# Picked by the run config's `guitar_setup` pointer; read by src/grip/core/guitar.py.
+# The tuning is only a fallback: a GP file's or a lick's own tuning always replaces it.
+
+# Open-string MIDI pitches, string 1 (thinnest) first; standard tuning E4 B3 G3 D3 A2 E2.
+# A 7-string adds its low string at the end, e.g. B1 = 35.
+tuning: [64, 59, 55, 50, 45, 40]
+# Highest fret on the neck (physical limit; a note above it on every string is reported)
+highest_fret: 24
+# Vibrating string length in mm: 648 ≈ 25.5" (fanned frets: future option)
+scale_length_mm: 648.0

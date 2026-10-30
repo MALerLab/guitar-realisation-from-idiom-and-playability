@@ -3,11 +3,12 @@
 
 import pytest
 
-from src.optimiser.cost_terms import (
+from grip.cli.run_optimiser import RUN_CONFIG
+from grip.optimiser.cost_terms import (
     DOWN, NONE, UP, PickMemory, add_up_move, load_cost_config, picking_case, picking_hand_terms,
     shift_cost, stretch_cost, time_multiplier,
 )
-from src.optimiser.run_optimiser import RUN_CONFIG, load_run_config
+from grip.pipelines.optimiser_run import load_run_config
 
 CONFIG = load_cost_config(load_run_config(RUN_CONFIG)["cost_config"])
 SCALE = 648.0

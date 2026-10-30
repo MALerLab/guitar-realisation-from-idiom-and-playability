@@ -5,13 +5,14 @@ from dataclasses import replace
 
 import pytest
 
-from src.optimiser.cost_terms import DOWN, NONE, UP, load_cost_config
-from src.optimiser.guitar_neck import load_guitar_setup
-from src.optimiser.note_input import Note, Passage
-from src.optimiser.realisation_search import (
+from grip.cli.run_optimiser import RUN_CONFIG
+from grip.core.guitar import load_guitar_setup
+from grip.core.passage import Note, Passage
+from grip.optimiser.cost_terms import DOWN, NONE, UP, load_cost_config
+from grip.optimiser.realisation_search import (
     build_note_contexts, score_path, search_realisations, slide_allowed, stroke_allowed,
 )
-from src.optimiser.run_optimiser import RUN_CONFIG, load_run_config
+from grip.pipelines.optimiser_run import load_run_config
 
 RUN = load_run_config(RUN_CONFIG)
 CONFIG = load_cost_config(RUN["cost_config"])

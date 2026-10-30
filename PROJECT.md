@@ -19,7 +19,10 @@
 
 ## Environment
 - `uv` project, Python 3.11. Never `pip install`.
-- Node side (alphaTab, for `src/data/gp_parser.py`): after `uv sync`, run `uv run npm ci` once per
+- `src/grip/` is an installed package (editable, via `uv sync`): import `grip.<subpackage>`, never `src.…`.
+- Commands: `uv run grip-optimise <lick.yaml>` · `uv run grip-viewer` · `uv run grip-build-manifest --config …`
+  (declared in `pyproject.toml` → `[project.scripts]`).
+- Node side (alphaTab, for `src/grip/formats/gp_parser.py`): after `uv sync`, run `uv run npm ci` once per
   clone. `node_modules/` is untracked; `package-lock.json` pins alphaTab.
 
 ## Worktree setup
@@ -36,13 +39,20 @@
 - Check: `git remote -v` → 1 fetch line, 2 push lines.
 
 ## Layout rules
-- `src/` subpackages: `data/` · `optimiser/` (searches realisations; `uv run python -m src.optimiser.run_optimiser <lick.yaml>`) · `technique/` · `evaluation/` · `gp_viewer/`
-  (dev tool: browse GP files, run the optimiser and annotate passages in a browser; `uv run python -m src.gp_viewer.server`)
-  · `calibration/` (reference passages = Jae's fingerings, fitted against; imports `optimiser/`, never the reverse).
-- `configs/<subpackage>/` mirrors `src/<subpackage>/` — no hardcoded parameters in `src/`.
+- `src/grip/` = a shared library + thin entrypoints on top:
+  - library: `core/` (guitar, passage, repo paths: anything more than one subpackage uses) · `formats/`
+    (reading / writing files: GP, licks, run records) · `optimiser/` (searches realisations; pure search,
+    no file reading) · `calibration/` (reference passages = Jae's fingerings, fitted against) · `data/`
+    (manifest builder) · `technique/` · `evaluation/`
+  - `pipelines/` = run wiring shared by entrypoints (config → passage → search → record)
+  - entrypoints: `cli/` (commands: argparse + printing only) · `apps/gp_viewer/` (dev tool: browse GP
+    files, run the optimiser and annotate passages in a browser)
+  - Import rules: the library never imports `cli/`, `apps/` or `pipelines/`; enforced by `tests/test_import_rules.py`.
+- `configs/<subpackage>/` mirrors `src/grip/<subpackage>/` — no hardcoded parameters in `src/`.
   `configs/experiments/` is added when the first experiment exists.
+- `tests/<subpackage>/` mirrors `src/grip/<subpackage>/`.
 - `scripts/` = one-off / temporary, **untracked**. May hardcode values; its settings never
-  enter `configs/`. Used twice or proven useful → review and promote to `src/`.
+  enter `configs/`. Used twice or proven useful → review and promote to `src/grip/`.
 - `manifests/*.parquet` = **indexes only** — ids, paths, splits, metadata, counts. Never
   musical content (notes, string/fret, techniques). Files live in `~/storage/grip/manifests/`,
   untracked, linked into `manifests/` by `setup_worktree.sh`; the builder code + config
@@ -77,6 +87,8 @@
 - **reference coverage** — does the candidate set contain the trusted human realisation,
   or something materially similar?
 - **technique coverage** — does ≥1 plausible candidate preserve the withheld technique?
+- **existing tools** — other people's tab / fingering systems GRIP is measured against (the existing-tools
+  audit; e.g. Tablator, Bontempi). Never "baselines": that word is kept for GRIP's own baselines.
 
 ## Invariants
 - Generate → freeze candidates → analyse techniques. Full list: `docs/optimiser_requirements.md`.
@@ -84,7 +96,8 @@
     string crossings, legato where it changes playability).
   - No technique favouritism: generation never drops or ranks down a realisation for suiting
     one technique badly. Technique compatibility is computed after generation.
-  - `src/optimiser/` never imports from `src/technique/` or `src/evaluation/`.
+  - `grip.optimiser` never imports `grip.technique`, `grip.evaluation`, `grip.calibration` or
+    `grip.existing_tools` (enforced by `tests/test_import_rules.py`).
   - The source tab's fingering and pickstroke marks never enter generation; its articulation
     marks (bends, hammer-ons…) enter only where switched to enforced (R1); compatibility scores
     never steer generation.

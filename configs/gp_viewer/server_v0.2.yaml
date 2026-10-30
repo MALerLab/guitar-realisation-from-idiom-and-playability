@@ -1,5 +1,5 @@
 # GP viewer server v0.2: where it listens, which datasets it searches and opens, how alphaTab reads them.
-# Read by src/gp_viewer/server.py. Paths are relative to the repo root unless they start with ~ or /.
+# Read by src/grip/apps/gp_viewer/server.py. Paths are relative to the repo root unless they start with ~ or /.
 # v0.2: one dataset → a list of datasets (DadaGP, GOAT, ProgGP), each with its own folder and manifests.
 version: "0.2"
 
@@ -32,7 +32,7 @@ paths:
   runs_folder: data/optimiser_runs
   # The run config the Run button uses (guitar, cost knobs, search settings, runs folder)
   optimiser_run_config: configs/optimiser/optimiser_run_v0.1.yaml
-  # Reference passages saved from annotate mode (src/calibration/reference_set.py); off git
+  # Reference passages saved from annotate mode (src/grip/calibration/reference_set.py); off git
   reference_set_folder: ~/storage/grip/calibration/reference_set
   # alphaTab's browser build, notation font and soundfont (installed by `uv run npm ci`)
   alphatab_dist: node_modules/@coderline/alphatab/dist

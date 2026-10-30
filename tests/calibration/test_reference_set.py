@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from src.calibration.reference_set import (check_save, is_safe_file_name, new_version_name, reference_name_base,
+from grip.calibration.reference_set import (check_save, is_safe_file_name, new_version_name, reference_name_base,
                                            save_annotation)
 
 # One-note passage on a standard 6-string guitar: E4, playable as string 1 fret 0

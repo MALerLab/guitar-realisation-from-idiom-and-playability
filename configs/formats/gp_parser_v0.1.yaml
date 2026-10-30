@@ -1,0 +1,37 @@
+# GP parser v0.1: how Guitar Pro files (gp3–gp8) become NoteEvents.
+# Read by src/grip/formats/gp_parser.py. Background: docs/parser_audit.md.
+# Each convention lists the only value v0.1 implements; the parser refuses anything else.
+# Changing a convention = new behaviour = a new version of this file.
+version: "0.1"
+
+runtime:
+  # Node script that runs alphaTab and prints one raw JSON row per note (path from repo root)
+  node_script: src/grip/formats/alphatab_dump.mjs
+  # Seconds before a single file's Node run is abandoned
+  timeout_seconds: 60
+
+conventions:
+  # GP style: EADGBE = strings 6 5 4 3 2 1; a 7-string's low B = 7
+  string_numbering: highest_is_1
+  # MIDI pitch as it sounds, capo included; `fret` stays as written (relative to capo), `capo` is its own field
+  pitch: sounding
+  # Harmonics keep the pitch of the fretted note; the harmonic itself is a `harmonic_*` tag
+  harmonic_pitch: fretted
+  # Each grace note is its own NoteEvent, tagged `grace_*`
+  grace_notes: own_event
+  # alphaTab's grace timing, unchanged: gp3–5 graces are always a 32nd (120 ticks), taken from the
+  # previous note (before-beat) or the main note (on-beat); gp6–8 probably use the written length
+  grace_timing: alphatab
+  # A tied note is merged into the note it continues; that note's duration extends over the tie.
+  # A tie with no earlier note on its string within 3 bars ("dangling") stays a new note, with the
+  # fret stored in the file (alphaTab's behaviour)
+  tied_notes: merge
+  # Only techniques the file marks; an absent tag means "not marked", never "not played"
+  techniques: positive_tags_only
+  # Ticks, 960 per quarter note, in written order (repeats not played out)
+  timing_unit: ticks
+  # A fret below 0 stored in the file (seen on muted notes) becomes 0, and the pitch moves up to
+  # match, as in PyGuitarPro
+  negative_frets: clamp_to_0
+  # Tracks without strings (percussion, piano, vocals…) have no string or fret to realise, so they are dropped
+  stringless_tracks: drop

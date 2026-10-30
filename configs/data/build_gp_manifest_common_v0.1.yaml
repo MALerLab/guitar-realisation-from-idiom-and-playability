@@ -1,11 +1,11 @@
 # GP manifest build, rules shared by every dataset: how files are read, which tracks count as guitar or
 # bass, how tunings are labelled. Pointed to by each configs/data/build_gp_manifest_<dataset>_v*.yaml.
-# Read by src/data/build_gp_manifest.py. Output holds indexes and counts only, never musical content.
+# Read by src/grip/data/build_gp_manifest.py. Output holds indexes and counts only, never musical content.
 version: "0.1"
 
 runtime:
   # Node script that runs alphaTab and prints one JSON row per staff (path from repo root)
-  node_script: src/data/alphatab_track_metadata_dump.mjs
+  node_script: src/grip/data/alphatab_track_metadata_dump.mjs
   # How stored text (track names) is decoded. gp3–5 do not record the alphabet; windows-1252 keeps every
   # byte (so Cyrillic/Hebrew names can be re-read later) and matches PyGuitarPro. alphaTab's utf-8 default
   # destroys non-UTF-8 bytes into "�".

@@ -3,11 +3,11 @@ and guitar-or-bass identification. Uses the shipped configs, so a config change 
 """
 
 from dataclasses import replace
-from pathlib import Path
 
 import pytest
 
-from src.data.build_gp_manifest import (
+from grip.core.paths import repo_root
+from grip.data.build_gp_manifest import (
     NameMap,
     TuningDescription,
     clean_title,
@@ -20,7 +20,7 @@ from src.data.build_gp_manifest import (
     version_group_key,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = repo_root()
 CONFIG = load_manifest_config(REPO_ROOT / "configs/data/build_gp_manifest_dadagp_v0.1.yaml")
 # Naming rules of a dataset whose files are named by their stem (as ProgGP, GOAT); built from the
 # DadaGP config so the tests never need the untracked name map
