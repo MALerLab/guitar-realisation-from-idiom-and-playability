@@ -1,0 +1,13 @@
+# Tablator v0.1: its settings as the existing-tools audit ran them (web app defaults).
+# Read by src/grip/existing_tools/tablator.py.
+
+# Highest fret per string, string 6 … string 1 (base.py RANGES_GUITAR); Tablator's own neck, not GRIP's guitar setup
+fret_ranges_low_to_high: [18, 18, 18, 18, 20, 24]
+# Open strings: 0 = neither avoided nor prioritised, 1 = avoided, 2 = prioritised
+open_setting: 0
+# Fret height: 0 = higher frets cost a little more, 1 = ignored, 2 = higher frets preferred
+higher_setting: 0
+# How many fingerings to keep (the web app shows 3)
+alternative_count: 3
+# A fingering whose string sequence matches a kept one on more than this share of notes is skipped
+similarity_limit: 0.95

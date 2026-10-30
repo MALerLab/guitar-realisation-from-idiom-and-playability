@@ -21,7 +21,9 @@
 - `uv` project, Python 3.11. Never `pip install`.
 - `src/grip/` is an installed package (editable, via `uv sync`): import `grip.<subpackage>`, never `src.…`.
 - Commands: `uv run grip-optimise <lick.yaml>` · `uv run grip-viewer` · `uv run grip-build-manifest --config …`
-  (declared in `pyproject.toml` → `[project.scripts]`).
+  · `uv run grip-existing-tool <tablator|bontempi> --midi … | --gp … --bars …` (declared in `pyproject.toml` →
+  `[project.scripts]`).
+- Dependency group `existing-tools` (PuLP + HiGHS, for the Bontempi port) installs by default with `uv sync`.
 - Node side (alphaTab, for `src/grip/formats/gp_parser.py`): after `uv sync`, run `uv run npm ci` once per
   clone. `node_modules/` is untracked; `package-lock.json` pins alphaTab.
 
@@ -41,9 +43,10 @@
 ## Layout rules
 - `src/grip/` = a shared library + thin entrypoints on top:
   - library: `core/` (guitar, passage, repo paths: anything more than one subpackage uses) · `formats/`
-    (reading / writing files: GP, licks, run records) · `optimiser/` (searches realisations; pure search,
+    (reading / writing files: GP, MIDI, licks, run records) · `optimiser/` (searches realisations; pure search,
     no file reading) · `calibration/` (reference passages = Jae's fingerings, fitted against) · `data/`
-    (manifest builder) · `technique/` · `evaluation/`
+    (manifest builder) · `existing_tools/` (other people's systems, run for comparison: Tablator, Bontempi)
+    · `technique/` · `evaluation/`
   - `pipelines/` = run wiring shared by entrypoints (config → passage → search → record)
   - entrypoints: `cli/` (commands: argparse + printing only) · `apps/gp_viewer/` (dev tool: browse GP
     files, run the optimiser and annotate passages in a browser)
@@ -64,6 +67,10 @@
 - `externals/<category>/<repo>` = reused repos as git submodules, pinned to release tags,
   read/reference only, unmodified (e.g. `externals/parsers/PyGuitarPro`). Large repos are
   shallow (`shallow = true` in `.gitmodules`). Clone with `--recurse-submodules`.
+  - Exception: a few functions from a repo with no installable package are copied into
+    `src/grip/existing_tools/` unchanged, with the repo URL, commit and licence in the file header
+    (Tablator). A port (our own code following someone's model) names its source the same way (Bontempi).
+- Existing-tool runs (`--save`) → `data/existing_tool_runs/` → `~/storage/grip/existing_tool_runs/`.
 - `experiments/`: `exp<NNN>_<YYMMDD>_<rest>`.
 
 ## Vocabulary (one word per concept, in code and docs)

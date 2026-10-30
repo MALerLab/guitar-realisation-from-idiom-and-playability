@@ -34,6 +34,7 @@ link manifests/proggp_songs.parquet manifests/proggp_songs.parquet
 link manifests/proggp_tracks.parquet manifests/proggp_tracks.parquet
 link name_maps/proggp_artist_title_map_v0.1.yaml data/name_maps/proggp_artist_title_map_v0.1.yaml
 link optimiser_runs data/optimiser_runs
+link existing_tool_runs data/existing_tool_runs
 
 # 5. CLAUDE.md + todo.md: untracked, kept in the main checkout; every worktree links to its copy
 MAIN_CHECKOUT="$(git worktree list --porcelain | awk 'NR==1 {print $2}')"  # git lists the main checkout first

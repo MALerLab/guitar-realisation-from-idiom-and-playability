@@ -3,6 +3,7 @@ name = "grip"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
+    "mido>=1.3.3",
     "nodejs-wheel>=24.19.0",
     "numpy>=2.4.6",
     "pandas>=3.0.6",
@@ -15,6 +16,7 @@ dependencies = [
 grip-optimise = "grip.cli.run_optimiser:main"
 grip-build-manifest = "grip.cli.build_gp_manifest:main"
 grip-viewer = "grip.apps.gp_viewer.server:main"
+grip-existing-tool = "grip.cli.run_existing_tool:main"
 
 # The package lives in src/grip/; uv installs it into .venv as editable (points at the files, edits show at once)
 [build-system]
@@ -26,6 +28,15 @@ dev = [
     "pyguitarpro==0.11",
     "pytest>=9.1.1",
 ]
+# Solver for the Bontempi port; pinned to the versions the existing-tools audit ran
+existing-tools = [
+    "highspy==1.15.1",
+    "pulp==2.9.0",
+]
+
+[tool.uv]
+# `uv sync` installs these groups too
+default-groups = ["dev", "existing-tools"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

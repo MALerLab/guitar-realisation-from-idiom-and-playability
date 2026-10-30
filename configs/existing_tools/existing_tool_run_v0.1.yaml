@@ -1,0 +1,15 @@
+# Existing-tool run v0.1: everything one run of an existing tool uses. Read by src/grip/pipelines/existing_tool_run.py.
+# Paths are relative to the repo root.
+
+# Settings per tool; the command line picks the tool
+tool_configs:
+  tablator: configs/existing_tools/tablator_v0.1.yaml
+  bontempi: configs/existing_tools/bontempi_v0.1.yaml
+# Guitar for MIDI input (MIDI holds no tuning); a GP file's own tuning replaces it
+guitar_setup: configs/core/guitar_setup/default.yaml
+gp_parser_config: configs/formats/gp_parser_v0.1.yaml
+# MIDI input: time signature used when the file has none (bar numbers for --bars)
+midi_default_beats_per_bar: 4
+output:
+  # Link to ~/storage/grip/existing_tool_runs (setup_worktree.sh)
+  runs_folder: data/existing_tool_runs
