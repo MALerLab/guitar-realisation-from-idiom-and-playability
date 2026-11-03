@@ -589,6 +589,14 @@ Planning with Jae, no code. The settled picture now lives in `docs/design_spec.m
 - **Every string change costs**, neighbouring crossings included (settles skips-only vs all crossings).
 - Probed (scratch, 2026-11-03): low on the neck the scaled finger pairs come out lopsided (fret 1, middle →
   pinky +2: costs on string 1, free on string 6; +3: vetoed on string 1, allowed on string 6) → measure at fret 1.
+- **Stratosphere reference = a MIDI, no tab** (corrects the balance test above): Stratosphere (2) is the Eb
+  song tabbed on E standard (frets one too low; Stratosphere (5), tuned Eb, has the same pitches), and its
+  printed fingering is unplayable for a 4-fingered human (Jae). Reference = bars 37–41's pitches one semitone up
+  (`stratovarius - stratosphere bars37-41 160bpm.mid` in storage `midi/`); the target area = bars 37–41.
+- How it's really played (Jae, live footage + a cover): the original keeps the whole ascending lick on string 1;
+  a cover plays it on string 2 like Stratosphere (5) (with some wrong notes). Several valid ways; Songsterr's tab
+  beats every DadaGP version here.
+- First v1.0 run (Eb): GRIP camps on string 4 frets 18–24 (cost 4.59) → no-go zone or hand shift price next.
 
 ## Next
 - Build the picking hand model (`docs/design_spec.md` §5): string change cost first; balance on the

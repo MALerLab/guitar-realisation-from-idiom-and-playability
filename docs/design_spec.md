@@ -109,9 +109,14 @@ Both hands
 - How the chooser weighs catalogue counts against hand model costs (after the hand models are measured alone).
 
 ## 10. First bar: the balance test
-*Stratosphere* (`Stratosphere (2).gp3`, track 0): the one-string bit (song bars 38–41, all string 1) vs a
-scale run across 3 strings. Both hands are balanced when GRIP picks the layout a guitarist would. Same
-passages through Tablator and Bontempi; the hope is GRIP does better. Other test material too.
+*Stratosphere* song bars 37–41 (an Eb song): the area for balancing both hands. Both hands are balanced
+when GRIP picks the layout a guitarist would. Same passages through Tablator and Bontempi; the hope is GRIP
+does better. Other test material too.
+- Reference = the MIDI `stratovarius - stratosphere bars37-41 160bpm.mid` (storage `midi/`): the pitches
+  of DadaGP `Stratosphere (2).gp3` track 0, one semitone up so E-standard frets match the Eb fingering
+  (one stray note, harmless for the tests).
+- No DadaGP tab of it is a reference, ever: (2)'s printed fingering is unplayable for a 4-fingered human
+  and nowhere near how it's played (Jae, 2026-11-03).
 
 ## 11. Retired
 - The 5-fret box as its own rule (→ free zone, §4).
