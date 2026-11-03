@@ -101,7 +101,7 @@ def run_search(source: dict, k_best: int | None, comment: str | None,
     started = time.perf_counter()
     realisations = search_realisations(passage, load_cost_config(run_config["cost_config"]),
                                        load_hand_profile(run_config["hand_profile"]), k_best,
-                                       search["k_search_multiplier"], search["pick_memory_notes"])
+                                       search["k_search_multiplier"], tuple(run_config["pick_plans"]["habits"]))
     seconds = time.perf_counter() - started
     record = build_run_record(realisations, {**source, "k_best": k_best}, comment, seconds, run_config,
                               run_config_path)

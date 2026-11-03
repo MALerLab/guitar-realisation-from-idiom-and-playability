@@ -1,15 +1,16 @@
-"""Every cost term of the two-hand search, one named function each, plus how they add up.
+"""Every cost term of the two-hand search, one named function each.
 
-A move = going from one note's state to the next. Its terms are added, then raised to
-`big_move_exponent` (big moves punished extra), then summed over the passage. Every term is
-tagged with the hand it belongs to, so the breakdown can be split by hand (R10).
-Values: configs/optimiser/optimiser_cost_v*.yaml. Reasons: docs/optimiser_design_log.md.
+A move = going from one note's state to the next. Its terms are added, then summed over the passage.
+Every term is tagged with the hand it belongs to, so the breakdown can be split by hand.
+Values: configs/optimiser/optimiser_cost_v*.yaml. Current picture: docs/design_spec.md.
 
 Strings: 1 = thinnest. "Toward string 1" is the direction a downstroke travels.
 Fingers: 1–4 = index … pinky; 0 = open string (no finger).
 Fretting hand: hand position = the index finger's fret; reach comes from the hand model
 (grip.core.hand). Where a hand position can't play a note, the cost is inf: the search has to pick
 another hand position (a hand shift); the note itself always stays playable.
+Picking hand: strokes cost nothing (grip.optimiser.pick_plans writes them after the search); its one
+cost is the string change between picked notes.
 """
 
 from dataclasses import dataclass
@@ -23,7 +24,7 @@ from grip.core.hand import FINGER_NAMES, HandProfile, pair_span_mm
 
 DOWN, UP, NONE = "down", "up", "none"
 TERM_HAND = {
-    "picking": "picking",
+    "string_change": "picking",
     "legato": "fretting",
     "hammer_on_from_nowhere": "fretting",
     "hand_shift": "fretting",
@@ -39,35 +40,34 @@ class CostConfig:
     """All cost knobs, loaded from configs/optimiser/optimiser_cost_v*.yaml.
 
     Args:
-        picking: The picking table: {"same_string": {...}, "neighbouring_strings": {...},
-            "string_skips": {...}, "first_stroke": float}.
+        string_change_one_string: Cost of a change to the neighbouring string, at the reference gap.
+        string_change_exponent: Strings crossed are raised to this (> 1: a skip costs more than
+            the same strings crossed one at a time).
         legato: Hammer-on / pull-off cost at the reference gap.
         hammer_on_from_nowhere: Flat cost of legato onto a new string or after a rest.
         open_string_bend: Flat cost of bending an open string.
-        picking_hand_on: False = fretting hand only: every picked note a downstroke, no picking terms.
         box_frets: Finger (2–4) → frets past the index it sits for free (the box, idiom).
         stretch_per_mm: Stretch cost per mm past the box (or past the profile's comfy, non-index pairs).
-        hand_shift_fixed: Hand shift cost for moving at all.
-        hand_shift_per_mm: Hand shift cost per mm moved.
-        big_move_exponent: Each move's total is raised to this before summing (1 = plain sum).
+        hand_shift_reference_mm: The hand shift distance that costs hand_shift_at_reference.
+        hand_shift_at_reference: Cost of a hand shift of the reference distance, at the reference gap.
+        hand_shift_exponent: Distance (in reference distances) is raised to this (> 1: one big leap
+            costs more than small shifts covering the same distance).
         reference_gap_seconds: Time between notes at which costs hold exactly as written.
-        phrase_start_downstroke: Hard rule #1: no upstroke at a phrase start.
         rest_min_beats: A rest at least this long starts a new phrase.
         bar_lines_start_phrases: Every bar line starts a new phrase.
     """
 
-    picking: dict
+    string_change_one_string: float
+    string_change_exponent: float
     legato: float
     hammer_on_from_nowhere: float
     open_string_bend: float
-    picking_hand_on: bool
     box_frets: dict[int, int]
     stretch_per_mm: float
-    hand_shift_fixed: float
-    hand_shift_per_mm: float
-    big_move_exponent: float
+    hand_shift_reference_mm: float
+    hand_shift_at_reference: float
+    hand_shift_exponent: float
     reference_gap_seconds: float
-    phrase_start_downstroke: bool
     rest_min_beats: float
     bar_lines_start_phrases: bool
 
@@ -79,43 +79,27 @@ def load_cost_config(config_path: Path) -> CostConfig:
         config_path: Path to a configs/optimiser/optimiser_cost_v*.yaml file.
     """
     raw = yaml.safe_load(Path(config_path).read_text())
-    fretting = raw["fretting_hand"]
+    fretting, picking = raw["fretting_hand"], raw["picking_hand"]
     return CostConfig(
-        picking=raw["picking"],
+        string_change_one_string=float(picking["string_change"]["one_string"]),
+        string_change_exponent=float(picking["string_change"]["exponent"]),
         legato=float(raw["legato"]),
         hammer_on_from_nowhere=float(raw["hammer_on_from_nowhere"]),
         open_string_bend=float(raw["open_string_bend"]),
-        picking_hand_on=bool(raw["picking_hand_on"]),
         box_frets={FINGER_NAMES.index(name) + 1: int(frets)
                    for name, frets in fretting["box_frets_from_index"].items()},
         stretch_per_mm=float(fretting["stretch_per_mm"]),
-        hand_shift_fixed=float(fretting["hand_shift_fixed"]),
-        hand_shift_per_mm=float(fretting["hand_shift_per_mm"]),
-        big_move_exponent=float(raw["adding_up"]["big_move_exponent"]),
+        hand_shift_reference_mm=float(fretting["hand_shift"]["reference_mm"]),
+        hand_shift_at_reference=float(fretting["hand_shift"]["at_reference"]),
+        hand_shift_exponent=float(fretting["hand_shift"]["exponent"]),
         reference_gap_seconds=float(raw["timing"]["reference_gap_seconds"]),
-        phrase_start_downstroke=bool(raw["hard_rules"]["phrase_start_downstroke"]),
         rest_min_beats=float(raw["phrase_start_proxies"]["rest_min_beats"]),
         bar_lines_start_phrases=bool(raw["phrase_start_proxies"]["bar_lines"]),
     )
 
 
-@dataclass(frozen=True)
-class PickMemory:
-    """What the picking hand remembers: its last picked note.
-
-    Args:
-        string: String of the last picked note.
-        stroke: DOWN or UP.
-        notes_back: How many notes ago it was picked (1 = the previous note).
-    """
-
-    string: int
-    stroke: str
-    notes_back: int
-
-
 def time_multiplier(gap_seconds: float, config: CostConfig) -> float:
-    """Movement costs more with less time to make it (R4): reference gap ÷ actual gap.
+    """Movement costs more with less time to make it: reference gap ÷ actual gap.
 
     Args:
         gap_seconds: Time available for the movement.
@@ -124,78 +108,38 @@ def time_multiplier(gap_seconds: float, config: CostConfig) -> float:
     return config.reference_gap_seconds / max(gap_seconds, 1e-3)
 
 
-def picking_case(previous_string: int, previous_stroke: str, string: int, stroke: str,
-                 config: CostConfig) -> tuple[str, float]:
-    """Look up the picking table for one picked stroke after the last picked stroke.
+def string_change_cost(previous_string: int | None, string: int, gap_seconds: float, config: CostConfig) -> float:
+    """The pick travelling from the last picked note's string to this one: per string crossed, × time.
 
     Args:
-        previous_string: String of the last picked note.
-        previous_stroke: DOWN or UP.
-        string: String of this note.
-        stroke: DOWN or UP.
+        previous_string: String of the last picked note; None if nothing was picked yet.
+        string: String of this (picked) note.
+        gap_seconds: Time since the last picked note.
         config: Cost knobs.
-
-    Returns:
-        The case name (as in the config) and its base value at the reference gap.
     """
-    table = config.picking
-    string_change = string - previous_string
-    # Same string: alternate, or a repeated stroke
-    if string_change == 0:
-        case = "alternate" if previous_stroke != stroke else f"repeated_{stroke}"
-        return f"same_string.{case}", float(table["same_string"][case])
-
-    # The direction the hand travels: toward string 1 = the way a downstroke goes
-    travel = DOWN if string_change < 0 else UP
-    first_stroke_with_travel = previous_stroke == travel
-    if abs(string_change) == 1:
-        group = "neighbouring_strings"
-        if previous_stroke == stroke:
-            case = f"{stroke}_{stroke}_sweep" if first_stroke_with_travel else f"against_crossing_repeated_{stroke}"
-        else:
-            case = "first_stroke_toward_move" if first_stroke_with_travel else "first_stroke_against_move"
-        return f"{group}.{case}", float(table[group][case])
-
-    # String skip: like the neighbouring case, plus a cost per extra skipped string
-    group = "string_skips"
-    if previous_stroke == stroke:
-        case = f"repeated_{stroke}" if first_stroke_with_travel else f"against_skip_repeated_{stroke}"
-    else:
-        case = "first_stroke_toward_move" if first_stroke_with_travel else "first_stroke_against_move"
-    extra = (abs(string_change) - 2) * float(table[group]["per_extra_skipped_string"])
-    return f"{group}.{case}", float(table[group][case]) + extra
+    if previous_string is None or previous_string == string:
+        return 0.0
+    strings_crossed = abs(string - previous_string)
+    return (config.string_change_one_string * strings_crossed ** config.string_change_exponent
+            * time_multiplier(gap_seconds, config))
 
 
-def picking_hand_terms(memory: PickMemory | None, string: int, stroke: str,
-                       gap_since_last_pick: float, legato_is_normal: bool, gap_since_previous: float,
-                       config: CostConfig) -> tuple[dict[str, float], str | None]:
-    """Cost of this note's stroke: a pick (table × time) or no pick (legato or from nowhere).
+def legato_terms(legato_is_normal: bool, gap_since_previous: float, config: CostConfig) -> dict[str, float]:
+    """A note the pick doesn't play: an ordinary hammer-on / pull-off, or one from nowhere.
 
     Args:
-        memory: The picking hand's last picked note, or None if nothing was picked yet.
-        string: String of this note.
-        stroke: DOWN, UP or NONE.
-        gap_since_last_pick: Seconds since the last picked note (unused without memory).
-        legato_is_normal: True if a no-pick note here is an ordinary hammer-on / pull-off
-            (same string as the previous note, still ringing, a different fret).
+        legato_is_normal: True if it's an ordinary hammer-on / pull-off (same string as the previous
+            note, still ringing, a different fret).
         gap_since_previous: Seconds since the previous note.
         config: Cost knobs.
-
-    Returns:
-        The terms, and the picking case name (None when no pick).
     """
-    if stroke == NONE:
-        if legato_is_normal:
-            return {"legato": config.legato * time_multiplier(gap_since_previous, config)}, None
-        return {"hammer_on_from_nowhere": config.hammer_on_from_nowhere}, None
-    if memory is None:
-        return {"picking": float(config.picking["first_stroke"])}, "first_stroke"
-    case, value = picking_case(memory.string, memory.stroke, string, stroke, config)
-    return {"picking": value * time_multiplier(gap_since_last_pick, config)}, case
+    if legato_is_normal:
+        return {"legato": config.legato * time_multiplier(gap_since_previous, config)}
+    return {"hammer_on_from_nowhere": config.hammer_on_from_nowhere}
 
 
 def hand_shift_cost(hand_from, hand_to, gap_seconds: float, config: CostConfig, scale_length_mm: float):
-    """The hand moving along the neck: a fixed cost for moving at all + per mm, × time (R4).
+    """The hand moving along the neck: (distance / reference) ** exponent, × time.
 
     Works on numbers or numpy arrays (broadcast).
 
@@ -209,8 +153,8 @@ def hand_shift_cost(hand_from, hand_to, gap_seconds: float, config: CostConfig, 
     hand_from = np.asarray(hand_from, dtype=float)
     hand_to = np.asarray(hand_to, dtype=float)
     distance = distance_mm(hand_from, hand_to, scale_length_mm)
-    moved = config.hand_shift_fixed + distance * config.hand_shift_per_mm
-    return np.where(hand_from != hand_to, moved, 0.0) * time_multiplier(gap_seconds, config)
+    moved = config.hand_shift_at_reference * (distance / config.hand_shift_reference_mm) ** config.hand_shift_exponent
+    return moved * time_multiplier(gap_seconds, config)
 
 
 def same_finger_cost(previous_position: Position, previous_finger: int, previous_hand, position: Position,
@@ -339,17 +283,3 @@ def open_string_bend_cost(fret: int, is_bend: bool, config: CostConfig) -> float
         config: Cost knobs.
     """
     return config.open_string_bend if is_bend and fret == 0 else 0.0
-
-
-def add_up_move(terms: dict[str, float], config: CostConfig) -> tuple[float, float]:
-    """One move's total, and its cost after big moves are punished extra.
-
-    Args:
-        terms: The move's term values.
-        config: Cost knobs.
-
-    Returns:
-        (sum of terms, sum ** big_move_exponent).
-    """
-    total = sum(terms.values())
-    return total, total ** config.big_move_exponent

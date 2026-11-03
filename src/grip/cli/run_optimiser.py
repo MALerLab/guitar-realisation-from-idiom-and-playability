@@ -15,7 +15,7 @@ from grip.core.paths import repo_root
 from grip.formats.run_record import differing_notes, render_breakdown, render_flags, render_tab
 from grip.pipelines.optimiser_run import run_search, save_run_record
 
-RUN_CONFIG = repo_root() / "configs/optimiser/optimiser_run_v0.2.yaml"
+RUN_CONFIG = repo_root() / "configs/optimiser/optimiser_run_v1.0.yaml"
 
 
 def main() -> None:

@@ -1,8 +1,9 @@
 """An optimiser run on paper: realisations as ASCII tabs, cost breakdowns, flags, and JSON-ready run records.
 
-Tab rows: strings (1 = thinnest, on top), then stroke (D down, U up, h hammer-on, p pull-off,
-s slide, t left-hand tap, H hammer-on from nowhere), finger (1–4 = index … pinky, 0 = open),
-hand (hand position: the index finger's fret). "*" = null symbol (chord / dead / unreachable).
+Tab rows: strings (1 = thinnest, on top), then one stroke row per pick plan, labelled by its habit's first
+letter (a = alternate, e = economy: D down, U up, h hammer-on, p pull-off, s slide, t left-hand tap,
+H hammer-on from nowhere), finger (1–4 = index … pinky, 0 = open), hand (hand position: the index finger's
+fret). "*" = null symbol (chord / dead / unreachable).
 """
 
 import re
@@ -17,19 +18,20 @@ from grip.optimiser.realisation_search import Flag, Realisation
 
 STROKE_LETTERS = {"down": "D", "up": "U"}
 # Format tag + version written into every run file (the gp_viewer checks it)
-RUN_FILE_FORMAT = {"name": "grip_optimiser_run", "version": "0.2"}
+RUN_FILE_FORMAT = {"name": "grip_optimiser_run", "version": "1.0"}
 
 
-def stroke_letter(realisation: Realisation, index: int) -> str:
+def stroke_letter(realisation: Realisation, index: int, stroke: str) -> str:
     """The stroke row's letter for one note.
 
     Args:
         realisation: The realisation (its passage gives the articulations).
         index: Index in realisation.passage.notes.
+        stroke: The note's stroke in one pick plan (DOWN, UP or NONE).
     """
     choice = realisation.choices[index]
-    if choice.stroke != NONE:
-        return STROKE_LETTERS[choice.stroke]
+    if stroke != NONE:
+        return STROKE_LETTERS[stroke]
     articulations = realisation.passage.notes[index].articulations
     if "slide" in articulations:
         return "s"
@@ -42,23 +44,36 @@ def stroke_letter(realisation: Realisation, index: int) -> str:
     return "h" if choice.position.fret > previous.position.fret else "p"
 
 
+def stroke_letters(realisation: Realisation, strokes: tuple) -> list[str | None]:
+    """One pick plan's stroke letters per passage event; None for null symbols.
+
+    Args:
+        realisation: The realisation.
+        strokes: The pick plan's strokes (per passage event).
+    """
+    return [stroke_letter(realisation, index, stroke) if stroke is not None else None
+            for index, stroke in enumerate(strokes)]
+
+
 def render_tab(realisation: Realisation) -> str:
-    """ASCII tab with stroke, finger and hand rows.
+    """ASCII tab with a stroke row per pick plan, then finger and hand rows.
 
     Args:
         realisation: The realisation.
     """
     string_count = realisation.passage.guitar.string_count
-    rows = {name: [] for name in [*range(1, string_count + 1), "stroke", "finger", "hand"]}
+    habits = [plan.habit for plan in realisation.pick_plans]
+    rows = {name: [] for name in [*range(1, string_count + 1), *habits, "finger", "hand"]}
     for index, choice in enumerate(realisation.choices):
         if choice.position is None:
             cells = {string: "*" for string in range(1, string_count + 1)}
-            cells.update(stroke="*", finger="", hand="")
+            cells.update({habit: "*" for habit in habits}, finger="", hand="")
         else:
             cells = {string: "" for string in range(1, string_count + 1)}
             cells[choice.position.string] = str(choice.position.fret)
-            cells.update(stroke=stroke_letter(realisation, index),
-                         finger=str(choice.finger), hand=str(choice.hand))
+            cells.update({plan.habit: stroke_letter(realisation, index, plan.strokes[index])
+                          for plan in realisation.pick_plans})
+            cells.update(finger=str(choice.finger), hand=str(choice.hand))
         width = max(len(text) for text in cells.values()) + 1
         for name, text in cells.items():
             filler = "-" if isinstance(name, int) else " "
@@ -69,30 +84,29 @@ def render_tab(realisation: Realisation) -> str:
 
 
 def render_breakdown(realisation: Realisation) -> str:
-    """One line per move: picking case, every term, total and cost; then totals per hand.
+    """One line per move: every term and the total; then totals per hand.
 
     Args:
         realisation: The realisation.
     """
     term_names = list(TERM_HAND)
-    header = f"{'note':>4} {'str':>3} {'fret':>4} {'case':<44}" + "".join(f"{n[:9]:>10}" for n in term_names)
-    lines = [header + f"{'total':>8}{'cost':>8}"]
+    header = f"{'note':>4} {'str':>3} {'fret':>4}" + "".join(f"{n[:9]:>10}" for n in term_names)
+    lines = [header + f"{'total':>8}"]
     hand_totals = {"fretting": 0.0, "picking": 0.0}
     for move in realisation.moves:
         choice = realisation.choices[move.passage_index]
         values = "".join(f"{move.terms.get(name, 0.0):>10.2f}" for name in term_names)
-        case = move.picking_case or "-"
-        lines.append(f"{move.passage_index + 1:>4} {choice.position.string:>3} {choice.position.fret:>4} "
-                     f"{case:<44}{values}{move.total:>8.2f}{move.cost:>8.2f}")
+        lines.append(f"{move.passage_index + 1:>4} {choice.position.string:>3} {choice.position.fret:>4}"
+                     f"{values}{move.total:>8.2f}")
         for name, value in move.terms.items():
             hand_totals[TERM_HAND[name]] += value
-    lines.append(f"term sums by hand (before ** exponent): fretting {hand_totals['fretting']:.2f}, "
-                 f"picking {hand_totals['picking']:.2f}")
+    lines.append(f"term sums by hand: fretting {hand_totals['fretting']:.2f}, picking {hand_totals['picking']:.2f}")
     return "\n".join(lines)
 
 
 def render_flags(realisation: Realisation) -> str:
-    """One line per flag: where the box said fine but the hand couldn't reach, so it hand shifted.
+    """One line per flag: where the box said fine but the hand couldn't reach (so it hand shifted), and
+    per pick plan where a phrase ends whose next phrase would start on an upstroke.
 
     Args:
         realisation: The realisation.
@@ -103,6 +117,11 @@ def render_flags(realisation: Realisation) -> str:
         lines.append(f"flag: note {flag.passage_index + 1} (string {position.string} fret {position.fret}): "
                      f"{FINGER_NAMES[flag.finger - 1]} in the box from hand {flag.hand_from} but out of reach "
                      f"→ hand {flag.hand_to}")
+    for plan in realisation.pick_plans:
+        for passage_index in plan.flags:
+            position = realisation.choices[passage_index].position
+            lines.append(f"flag ({plan.habit}): note {passage_index + 1} (string {position.string} fret "
+                         f"{position.fret}) ends a phrase; the next phrase would start on an upstroke")
     return "\n".join(lines)
 
 
@@ -146,7 +165,9 @@ def passage_to_dict(passage: Passage) -> dict:
 
 
 def realisation_to_dict(realisation: Realisation, rank: int, best: Realisation, flag_notes_around: int) -> dict:
-    """One realisation as plain JSON-ready data: choices (with stroke letters), move costs and flags.
+    """One realisation as plain JSON-ready data: choices, move costs, flags and pick plans.
+
+    Each choice carries the first pick plan's stroke and stroke letter (what the gp_viewer shows).
 
     Args:
         realisation: The realisation.
@@ -154,6 +175,8 @@ def realisation_to_dict(realisation: Realisation, rank: int, best: Realisation, 
         best: The cheapest realisation (for the differing notes).
         flag_notes_around: Playable notes saved either side of each flag.
     """
+    shown = realisation.pick_plans[0]
+    shown_letters = stroke_letters(realisation, shown.strokes)
     choices = []
     for index, choice in enumerate(realisation.choices):
         playable = choice.position is not None
@@ -161,14 +184,17 @@ def realisation_to_dict(realisation: Realisation, rank: int, best: Realisation, 
             "passage_index": choice.passage_index,
             "string": choice.position.string if playable else None,
             "fret": choice.position.fret if playable else None,
-            "finger": choice.finger, "hand": choice.hand, "stroke": choice.stroke,
-            "stroke_letter": stroke_letter(realisation, index) if playable else None,
+            "finger": choice.finger, "hand": choice.hand, "stroke": shown.strokes[index],
+            "stroke_letter": shown_letters[index],
         })
+    pick_plans = [{"habit": plan.habit, "strokes": list(plan.strokes), "stroke_letters": stroke_letters(realisation, plan.strokes),
+                   "flags": list(plan.flags)} for plan in realisation.pick_plans]
     return {"rank": rank, "total_cost": realisation.total_cost,
             "differs_at_notes": differing_notes(realisation, best),
             "choices": choices, "moves": [asdict(move) for move in realisation.moves],
             "flags": [{**asdict(flag), "notes_around": notes_around(realisation, flag, flag_notes_around)}
-                      for flag in realisation.flags]}
+                      for flag in realisation.flags],
+            "pick_plans": pick_plans}
 
 
 def free_run_path(runs_folder: Path, passage_name: str, comment: str | None) -> Path:

@@ -1,3 +1,4 @@
+# DEPRECATED (2026-11-03): current version is v1.0 (hand model v1.0); the v1.0 code can't run this one.
 # Optimiser cost v0.2: fretting hand only (hand model build, 2026-10-31).
 # Picked by the run config's `cost_config` pointer. v0.1 = the earlier starter weights (older code).
 # Every cost not thought through in depth yet is 0 and ignored for this build (Jae, 2026-10-31):

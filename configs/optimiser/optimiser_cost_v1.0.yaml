@@ -1,0 +1,43 @@
+# Optimiser cost v1.0: hand model v1.0, both hands (docs/design_spec.md, 2026-11-03).
+# Picked by the run config's `cost_config` pointer. v0.1 / v0.2 = legacy, not reference.
+# First guesses: tuned by trial and error on the Stratosphere balance test + the licks.
+version: "1.0"
+
+# Picking hand: strokes cost nothing (pick plans are written after the search); one cost:
+# the string change between picked notes = one_string × strings_crossed ** exponent × time.
+# exponent > 1: a skip costs more than the same strings crossed one at a time.
+picking_hand:
+  string_change:
+    one_string: 0.5
+    exponent: 1.5
+
+# Fretting hand. Hand position = the index finger's fret; the finger is chosen per note.
+# Zones per finger, from the index: box (idiom: free) → stretch box (up to the hand profile's clean max:
+# per mm past the box) → past clean max (this hand position can't play the note: hand shift).
+# The box retires for the free zone (= the player's comfy) after the fret-1 finger pair measurement.
+fretting_hand:
+  # Box: how many frets past the index each finger sits for free (index fret n → pinky fret n+4)
+  box_frets_from_index: {middle: 2, ring: 3, pinky: 4}
+  # Stretch box: per mm past the box (index pairs) or past the profile's comfy (middle/ring/pinky pairs)
+  stretch_per_mm: 0.02
+  # Hand shift = at_reference × (distance / reference_mm) ** exponent × time; no cost for not moving.
+  # exponent > 1: one big leap costs more than small shifts covering the same distance.
+  # 30 mm ≈ one fret around fret 5; 5 frets from fret 5 ≈ 130 mm ≈ 9 × one fret's cost.
+  hand_shift:
+    reference_mm: 30.0
+    at_reference: 1.0
+    exponent: 1.5
+
+# Notes the pick doesn't play (enforced legato only, from the tab's marks): 0 for now
+legato: 0.0
+hammer_on_from_nowhere: 0.0
+open_string_bend: 0.0
+
+# Timing: hand shifts and string changes = value × (reference_gap / time to make the move)
+timing:
+  reference_gap_seconds: 0.15  # 16th notes at 100 bpm: costs hold exactly as written here
+
+# No phrase finding yet (the catalogue's job); these proxies mark phrase starts for the pick plans
+phrase_start_proxies:
+  rest_min_beats: 1.0  # a rest at least this long starts a new phrase
+  bar_lines: false     # every bar line starts a new phrase (risky: pickups, odd groupings)
