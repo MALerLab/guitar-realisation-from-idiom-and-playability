@@ -1,0 +1,69 @@
+# Optimiser cost v0.2: fretting hand only (hand model build, 2026-10-31).
+# Picked by the run config's `cost_config` pointer. v0.1 = the earlier starter weights (older code).
+# Every cost not thought through in depth yet is 0 and ignored for this build (Jae, 2026-10-31):
+# picking, legato, hammer-on from nowhere, open-string bend; plain sum (exponent 1).
+# The fretting-hand values are first guesses; only their ratios matter while everything else is 0.
+version: "0.2"
+
+# Picking hand: off = fretting hand only (ablation stage 1). Every picked note is a downstroke and
+# no picking cost is added; enforced legato / slide / left-hand tap stay unpicked.
+# (With the picking costs at 0, leaving it on would flood the k-best with equal stroke variants.)
+picking_hand_on: false
+
+# Picking hand table: kept for when the picking hand comes back; all 0 for now
+picking:
+  same_string:
+    alternate: 0.0
+    repeated_down: 0.0
+    repeated_up: 0.0
+  neighbouring_strings:
+    down_down_sweep: 0.0
+    up_up_sweep: 0.0
+    first_stroke_toward_move: 0.0
+    first_stroke_against_move: 0.0
+    against_crossing_repeated_up: 0.0
+    against_crossing_repeated_down: 0.0
+  string_skips:
+    first_stroke_toward_move: 0.0
+    repeated_down: 0.0
+    repeated_up: 0.0
+    first_stroke_against_move: 0.0
+    against_skip_repeated_down: 0.0
+    against_skip_repeated_up: 0.0
+    per_extra_skipped_string: 0.0
+  first_stroke: 0.0
+
+# Timing (R4): hand shifts (and picking, when on) = value × (reference_gap / time to make the move)
+timing:
+  reference_gap_seconds: 0.15  # 16th notes at 100 bpm: costs hold exactly as written here
+
+# Per-note costs, 0 for now
+legato: 0.0
+hammer_on_from_nowhere: 0.0
+open_string_bend: 0.0
+
+# Fretting hand. Hand position = the index finger's fret; the finger is chosen per note.
+# Zones per finger, from the index: box (idiom: free) → stretch box (up to the hand profile's clean max:
+# per mm past the box) → past clean max (this hand position can't play the note: hand shift).
+fretting_hand:
+  # Box: how many frets past the index each finger sits for free (index fret n → pinky fret n+4)
+  box_frets_from_index: {middle: 2, ring: 3, pinky: 4}
+  # Stretch box: per mm past the box (index pairs) or past the profile's comfy (middle/ring/pinky pairs)
+  stretch_per_mm: 0.02
+  # Hand shift: a fixed cost for moving at all + per mm moved, both × (reference_gap / time).
+  # At fret 5: 1 fret ≈ 29 mm → ≈ 1.6; 5 frets ≈ 130 mm → ≈ 3.6 (at the reference gap)
+  hand_shift_fixed: 1.0
+  hand_shift_per_mm: 0.02
+
+# How costs add up over a passage: each move's total ** exponent, then summed (1 = plain sum)
+adding_up:
+  big_move_exponent: 1.0
+
+# Hard rules (R8): each one approved by Jae; true = enforced
+hard_rules:
+  phrase_start_downstroke: true  # a new phrase starts with a downstroke; off for up/down-ambidextrous players
+
+# Layer 1 has no phrase finding yet; these proxies mark phrase starts
+phrase_start_proxies:
+  rest_min_beats: 1.0  # a rest at least this long starts a new phrase
+  bar_lines: false     # every bar line starts a new phrase (risky: pickups, odd groupings)

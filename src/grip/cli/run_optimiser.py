@@ -12,10 +12,10 @@ Tab rows: see grip.formats.run_record.
 import argparse
 
 from grip.core.paths import repo_root
-from grip.formats.run_record import differing_notes, render_breakdown, render_tab
+from grip.formats.run_record import differing_notes, render_breakdown, render_flags, render_tab
 from grip.pipelines.optimiser_run import run_search, save_run_record
 
-RUN_CONFIG = repo_root() / "configs/optimiser/optimiser_run_v0.1.yaml"
+RUN_CONFIG = repo_root() / "configs/optimiser/optimiser_run_v0.2.yaml"
 
 
 def main() -> None:
@@ -55,6 +55,8 @@ def main() -> None:
         differs = "" if rank == 1 else f" — differs at notes {differing_notes(realisation, best)}"
         print(f"\n#{rank}  cost {realisation.total_cost:.2f}{differs}")
         print(render_tab(realisation))
+        if realisation.flags:
+            print(render_flags(realisation))
         if rank == 1 or args.breakdown:
             print(render_breakdown(realisation))
 

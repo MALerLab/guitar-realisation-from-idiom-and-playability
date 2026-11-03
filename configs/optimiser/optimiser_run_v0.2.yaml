@@ -1,0 +1,34 @@
+# Optimiser run v0.2: everything one run uses, in one file. Read by src/grip/pipelines/optimiser_run.py.
+# The four pointers name other config files (paths from the repo root); the rest are settings.
+version: "0.2"
+
+# Which guitar, hand, cost knobs and GP parser this run uses
+guitar_setup: configs/core/guitar_setup/default.yaml
+hand_profile: configs/core/hand_profile/default.yaml
+cost_config: configs/optimiser/optimiser_cost_v0.2.yaml
+gp_parser_config: configs/formats/gp_parser_v0.1.yaml
+
+output:
+  # Where `run_optimiser.py --save` writes one JSON file per run (path from the repo root).
+  # A link to ~/storage/grip/optimiser_runs/ made by setup_worktree.sh: shared by every worktree, off git.
+  runs_folder: data/optimiser_runs
+  # Flags (box said fine, the hand couldn't reach) are saved with this many notes either side
+  flag_notes_around: 2
+
+search:
+  # How many of the cheapest realisations to return (plain k-best)
+  k_best: 5
+  # The search keeps k_best × this many paths, then drops paths whose fingering (string, fret)
+  # repeats a cheaper one (they differ only in finger, hand position or strokes)
+  k_search_multiplier: 100
+  # How many notes back the picking hand remembers its last picked note across a legato chain.
+  # Longer chains use the time to the note this many back (slightly overestimates the cost).
+  pick_memory_notes: 3
+
+# Enforced articulations (R1): true = the tab's mark is a fixed part of the music.
+# Bends can't be switched off yet (the parser doesn't keep the bend amount).
+articulations:
+  bend: true
+  legato: true         # hammer-on / pull-off marks
+  slide: true          # the note a slide lands on
+  left_hand_tap: true

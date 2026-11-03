@@ -11,6 +11,7 @@ from pathlib import Path
 import yaml
 
 from grip.core.guitar import load_guitar_setup
+from grip.core.hand import load_hand_profile
 from grip.core.passage import Passage
 from grip.core.paths import repo_root
 from grip.formats.passage_input import load_articulation_switches, load_gp_passage, load_lick
@@ -19,7 +20,7 @@ from grip.optimiser.cost_terms import TERM_HAND, load_cost_config
 from grip.optimiser.realisation_search import Realisation, search_realisations
 
 # Run-config fields that point at other config files (paths from the repo root)
-CONFIG_POINTERS = ("guitar_setup", "cost_config", "gp_parser_config")
+CONFIG_POINTERS = ("guitar_setup", "hand_profile", "cost_config", "gp_parser_config")
 
 
 def load_run_config(run_config_path: Path) -> dict:
@@ -56,7 +57,7 @@ def build_run_record(realisations: list[Realisation], source: dict, comment: str
         "comment": comment, "source": source, "search_seconds": round(search_seconds, 3),
         "term_hand": TERM_HAND, "settings": settings,
         "passage": passage_to_dict(best.passage),
-        "realisations": [realisation_to_dict(realisation, rank, best)
+        "realisations": [realisation_to_dict(realisation, rank, best, run_config["output"]["flag_notes_around"])
                          for rank, realisation in enumerate(realisations, start=1)],
     }
 
@@ -98,7 +99,8 @@ def run_search(source: dict, k_best: int | None, comment: str | None,
     passage = load_source_passage(source, run_config_path)
     k_best = k_best or search["k_best"]
     started = time.perf_counter()
-    realisations = search_realisations(passage, load_cost_config(run_config["cost_config"]), k_best,
+    realisations = search_realisations(passage, load_cost_config(run_config["cost_config"]),
+                                       load_hand_profile(run_config["hand_profile"]), k_best,
                                        search["k_search_multiplier"], search["pick_memory_notes"])
     seconds = time.perf_counter() - started
     record = build_run_record(realisations, {**source, "k_best": k_best}, comment, seconds, run_config,

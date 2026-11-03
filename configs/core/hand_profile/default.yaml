@@ -1,0 +1,25 @@
+# Hand profile: the default player's fretting-hand reach, measured on the fretboard (2026-10-30).
+# Picked by the run config's `hand_profile` pointer; read by src/grip/core/hand.py.
+# Spans in frets past the lower finger (planted), the other finger toward the body, same string.
+# Converted to mm at `scale_length_mm`; the hand model blends them over the neck (see hand.py).
+# Fingers: index, middle, ring, pinky. Strings: 1 = thinnest.
+
+# Scale length the fret spans are converted to mm at
+scale_length_mm: 648.0
+
+# All 6 finger pairs, lower finger on fret 12: comfy / clean max on string 1 and string 6
+high_on_neck:
+  lower_finger_fret: 12
+  finger_pairs:
+    index_middle: {string_1: {comfy: 2, clean_max: 3}, string_6: {comfy: 1, clean_max: 2}}
+    index_ring:   {string_1: {comfy: 3, clean_max: 5}, string_6: {comfy: 2, clean_max: 3}}
+    index_pinky:  {string_1: {comfy: 4, clean_max: 6}, string_6: {comfy: 3, clean_max: 4}}
+    middle_ring:  {string_1: {comfy: 1, clean_max: 2}, string_6: {comfy: 1, clean_max: 2}}
+    middle_pinky: {string_1: {comfy: 2, clean_max: 4}, string_6: {comfy: 2, clean_max: 3}}
+    ring_pinky:   {string_1: {comfy: 1, clean_max: 2}, string_6: {comfy: 0, clean_max: 1}}  # string 6: no comfy zone
+
+# Index on fret 1 → pinky only (the other pairs weren't measured here; they grow by the same factor)
+low_on_neck:
+  lower_finger_fret: 1
+  finger_pairs:
+    index_pinky: {string_1: {comfy: 3, clean_max: 4}, string_6: {comfy: 3, clean_max: 4}}

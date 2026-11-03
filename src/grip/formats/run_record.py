@@ -1,8 +1,8 @@
-"""An optimiser run on paper: realisations as ASCII tabs, cost breakdowns, and JSON-ready run records.
+"""An optimiser run on paper: realisations as ASCII tabs, cost breakdowns, flags, and JSON-ready run records.
 
 Tab rows: strings (1 = thinnest, on top), then stroke (D down, U up, h hammer-on, p pull-off,
 s slide, t left-hand tap, H hammer-on from nowhere), finger (1–4 = index … pinky, 0 = open),
-hand (fret where the index finger naturally sits). "*" = null symbol (chord / dead / unreachable).
+hand (hand position: the index finger's fret). "*" = null symbol (chord / dead / unreachable).
 """
 
 import re
@@ -12,11 +12,12 @@ from pathlib import Path
 
 from grip.core.passage import Passage
 from grip.optimiser.cost_terms import NONE, TERM_HAND
-from grip.optimiser.realisation_search import Realisation
+from grip.core.hand import FINGER_NAMES
+from grip.optimiser.realisation_search import Flag, Realisation
 
 STROKE_LETTERS = {"down": "D", "up": "U"}
 # Format tag + version written into every run file (the gp_viewer checks it)
-RUN_FILE_FORMAT = {"name": "grip_optimiser_run", "version": "0.1"}
+RUN_FILE_FORMAT = {"name": "grip_optimiser_run", "version": "0.2"}
 
 
 def stroke_letter(realisation: Realisation, index: int) -> str:
@@ -90,14 +91,43 @@ def render_breakdown(realisation: Realisation) -> str:
     return "\n".join(lines)
 
 
+def render_flags(realisation: Realisation) -> str:
+    """One line per flag: where the box said fine but the hand couldn't reach, so it hand shifted.
+
+    Args:
+        realisation: The realisation.
+    """
+    lines = []
+    for flag in realisation.flags:
+        position = realisation.choices[flag.passage_index].position
+        lines.append(f"flag: note {flag.passage_index + 1} (string {position.string} fret {position.fret}): "
+                     f"{FINGER_NAMES[flag.finger - 1]} in the box from hand {flag.hand_from} but out of reach "
+                     f"→ hand {flag.hand_to}")
+    return "\n".join(lines)
+
+
+def notes_around(realisation: Realisation, flag: Flag, notes_either_side: int) -> list[int]:
+    """Passage indices of the flagged note and up to this many playable notes either side.
+
+    Args:
+        realisation: The realisation.
+        flag: One of its flags.
+        notes_either_side: How many playable notes to keep before and after.
+    """
+    playable = [choice.passage_index for choice in realisation.choices if choice.position is not None]
+    at = playable.index(flag.passage_index)
+    return playable[max(at - notes_either_side, 0):at + notes_either_side + 1]
+
+
 def differing_notes(realisation: Realisation, best: Realisation) -> list[int]:
-    """1-based note numbers where a realisation's tab differs from the best one.
+    """1-based note numbers where a realisation's fingering (string, fret) differs from the best one.
 
     Args:
         realisation: An alternative.
         best: The cheapest realisation.
     """
-    return [index + 1 for index, (a, b) in enumerate(zip(realisation.tab_key(), best.tab_key())) if a != b]
+    return [index + 1 for index, (a, b) in enumerate(zip(realisation.fingering_key(), best.fingering_key()))
+            if a != b]
 
 
 def passage_to_dict(passage: Passage) -> dict:
@@ -115,13 +145,14 @@ def passage_to_dict(passage: Passage) -> dict:
             "report": list(passage.report), "notes": notes}
 
 
-def realisation_to_dict(realisation: Realisation, rank: int, best: Realisation) -> dict:
-    """One realisation as plain JSON-ready data: choices (with stroke letters) and move costs.
+def realisation_to_dict(realisation: Realisation, rank: int, best: Realisation, flag_notes_around: int) -> dict:
+    """One realisation as plain JSON-ready data: choices (with stroke letters), move costs and flags.
 
     Args:
         realisation: The realisation.
         rank: 1 = cheapest.
         best: The cheapest realisation (for the differing notes).
+        flag_notes_around: Playable notes saved either side of each flag.
     """
     choices = []
     for index, choice in enumerate(realisation.choices):
@@ -135,7 +166,9 @@ def realisation_to_dict(realisation: Realisation, rank: int, best: Realisation) 
         })
     return {"rank": rank, "total_cost": realisation.total_cost,
             "differs_at_notes": differing_notes(realisation, best),
-            "choices": choices, "moves": [asdict(move) for move in realisation.moves]}
+            "choices": choices, "moves": [asdict(move) for move in realisation.moves],
+            "flags": [{**asdict(flag), "notes_around": notes_around(realisation, flag, flag_notes_around)}
+                      for flag in realisation.flags]}
 
 
 def free_run_path(runs_folder: Path, passage_name: str, comment: str | None) -> Path:

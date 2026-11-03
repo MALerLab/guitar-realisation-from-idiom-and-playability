@@ -480,9 +480,52 @@ Requirements (what the optimiser must do): `docs/optimiser_requirements.md`. Thi
 - **Open strings are free for the fretting hand.** Scale run: an open string 2 inside a run on
   string 3 (no finger, no stretch, hand stays).
 
+## Hand model v1: lick runs (2026-11-02)
+Jae read the tabs in his head (no guitar), cost v0.2. Runs in `data/optimiser_runs/261102_*.json`.
+Baseline for comparing v0.2 against the next cost version.
+- **A minor arpeggio** (140 bpm): all 5 tabs at hand position 5, cost 0 (the box covers every note),
+  so the ranking is just search order. Playable (Jae). Note 1 (string 4 fret 7) takes the middle
+  finger; Jae would use the ring, middle is fine too: both are free in the box.
+- **A minor scale run** (120 bpm): two octaves without a single hand shift, at hand position 7,
+  leaning on open strings 5, 4 and 3; all 5 tabs cost 0.07. Expected while open strings and the
+  picking hand are free; Jae would do the same without picking costs.
+  - Note 5: middle finger on the index's own fret (allowed while a thicker string is free for the
+    index). Unidiomatic: a player uses the index.
+- **String-skip arpeggio** (110 bpm): all at hand position 3, cost 0; middle + pinky (pinky +4,
+  free) rather than index + ring from hand position 5. Same note in different spots for no reason
+  (A2 open string 5, then string 6 fret 5; D3 middle, then ring). Jae wants a guitar in hand for this
+  one; the same-note spread points at needing a default.
+- **Slow line with a long held note** (60 bpm): the timing test never happens. The low line is
+  played up at hand position 12 + open strings, so there's no hand shift to price; string jumps
+  everywhere, all free. Looks funky (Jae); rerun on the next cost version.
+- **Solfeggietto bars 1–4** (140 bpm): hand position 8 for notes 1–39, then one 11-fret leap to
+  hand position 19 at note 40 (one 16th, ≈ 0.1 s) and camps there to the end; the leap is 6.78 of
+  the 6.87 total. The v0.1 run (2026-10-28) crept up in small steps (11 → 19) instead. Cause: the
+  fixed cost per hand shift makes one giant leap (6.78) cheaper than ~4 small shifts (≈ 10.6).
+  Camping at 19 also puts string 5 fret 22 and string 4 frets 21–22 in play (no-go zone unpriced).
+  - **Key lesson (Jae):** a big leap must cost more than the sum of small shifts covering the same
+    distance. Lever: the time cost, or a term that grows faster than linearly with frets shifted.
+- String-skip arpeggio + slow line: Jae reads them guitar in hand later (the first two he knows by heart).
+- **Ties:** costs tie often, so the order is arbitrary. Jae's ideas: break ties by the least stretch
+  from one finger per fret; or make one finger per fret the only truly free spot and give the rest
+  of the box a small cost (the idiom NN may sort this out later).
+- **String skips too cheap**: the picking hand is off.
+
 ## Next
 - Jae: read the code, run the licks guitar in hand, tune knobs against the findings above.
 - Then: chunk 2 (hybrid picking + right-hand tapping) and / or the Layer 1 experiment → Layer 2.
 
 ## Open questions
-_(none)_
+For the next hand model iteration (Jae, 2026-11-02, code review of the hand model build):
+- **Hand shift cost: first lever.** Fixed cost + per mm × time is too elaborate for how provisional it
+  is, and it probably makes or breaks the tabs (stretch and hand shift share the same per-mm rate, so a
+  stretch always beats a hand shift of the same distance by the fixed cost). Look at it first next time,
+  against the project's sharper shape after 2026-11-02.
+- **Same fret, different fingers: free, but the string rule may be too strict.** Jae is 50/50 on the
+  minimum span rule (the lower finger on the thicker string, as many strings apart as fingers apart).
+  Free stays. Note: CLAUDE.md "Finger pairs" still says two fingers on the same fret = clean max zone.
+- **Barre should cost.** The build charges nothing for one finger across strings on the same fret; Jae
+  wants a cost there. CLAUDE.md "Finger pairs" still says barre = fine.
+- **Flags lost their job.** Planned (2026-10-31) as a review queue of what the hand model vetoed; once
+  nothing is impossible (past clean max = hand shift), a flag only marks where the box and the hand
+  profile disagree, which never happens with Jae's profile and the +4 box. Rethink or bin.

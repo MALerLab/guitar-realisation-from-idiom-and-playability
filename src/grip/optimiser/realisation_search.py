@@ -3,12 +3,13 @@
 Exact column-by-column search (Viterbi, keeping the k best routes per state). One column per
 playable note; null symbols are skipped, both hands carry their state across them.
 
-State of one note (design log topics 3–5):
-- position: (string, fret), one of the note's candidate positions
-- hand: where the index finger naturally sits (fret 1 … highest fret); the finger is derived as
-  the one with the least stretch (natural_finger), exact for the starter cost terms
+State of one note (design log topics 3–5, hand model build 2026-10-31):
+- hand state: position (string, fret), finger (a real choice; 0 = open string) and hand position
+  (the index finger's fret). Only hand states the hand position can play are kept
+  (finger_stretch_cost < inf); the next move sees the previous note's hand state
 - slot: the stroke plus the picking hand's memory:
-  DOWN · UP · NONE with nothing picked yet · NONE remembering (string, stroke, notes back)
+  DOWN · UP · NONE with nothing picked yet · NONE remembering (string, stroke, notes back);
+  with the picking hand off: DOWN · NONE only
 
 Every route's cost is recomputed by score_path, which the breakdown uses; tests check it equals
 the search's own total.
@@ -18,12 +19,13 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from grip.optimiser.cost_terms import (
-    DOWN, NONE, UP, CostConfig, PickMemory, add_up_move, natural_finger, open_string_bend_cost,
-    picking_hand_terms, shift_cost, stretch_cost,
-)
 from grip.core.guitar import Position, candidate_positions
+from grip.core.hand import HandProfile
 from grip.core.passage import NO_PICK_ARTICULATIONS, Passage
+from grip.optimiser.cost_terms import (
+    DOWN, NONE, UP, CostConfig, PickMemory, add_up_move, box_allows_but_hand_cannot, finger_pair_cost,
+    finger_stretch_cost, hand_shift_cost, open_string_bend_cost, picking_hand_terms, same_finger_cost,
+)
 
 
 @dataclass(frozen=True)
@@ -55,6 +57,21 @@ class NoteContext:
 
 
 @dataclass(frozen=True)
+class HandState:
+    """How the fretting hand plays one note.
+
+    Args:
+        position: (string, fret).
+        finger: 1–4 = index … pinky, 0 = open string.
+        hand: Hand position (the index finger's fret).
+    """
+
+    position: Position
+    finger: int
+    hand: int
+
+
+@dataclass(frozen=True)
 class NoteChoice:
     """How one event of the passage is played.
 
@@ -62,7 +79,7 @@ class NoteChoice:
         passage_index: Index in Passage.notes.
         position: (string, fret), or None for a null symbol.
         finger: 1–4 = index … pinky, 0 = open string, None for a null symbol.
-        hand: Hand position (fret of the index finger's natural spot), None for a null symbol.
+        hand: Hand position (the index finger's fret), None for a null symbol.
         stroke: DOWN, UP or NONE (no pick), None for a null symbol.
     """
 
@@ -93,6 +110,23 @@ class MoveCost:
 
 
 @dataclass(frozen=True)
+class Flag:
+    """A spot where the box said fine but the player's hand couldn't reach: the search hand shifted.
+
+    Args:
+        passage_index: Index of the note in Passage.notes.
+        finger: The finger that couldn't reach from the old hand position.
+        hand_from: Hand position before the note.
+        hand_to: Hand position the note was played from.
+    """
+
+    passage_index: int
+    finger: int
+    hand_from: int
+    hand_to: int
+
+
+@dataclass(frozen=True)
 class Realisation:
     """One way to play the whole passage: fingering + pick plan, with its cost breakdown.
 
@@ -100,6 +134,7 @@ class Realisation:
         choices: One NoteChoice per event of the passage (null symbols included).
         moves: One MoveCost per playable note.
         total_cost: Sum of the move costs.
+        flags: Spots where the box said fine but the hand couldn't reach.
         passage: The passage this realisation plays (shared, not copied); left out of repr and
             equality, so realisations print and compare by their decisions only.
     """
@@ -107,11 +142,12 @@ class Realisation:
     choices: tuple[NoteChoice, ...]
     moves: tuple[MoveCost, ...]
     total_cost: float
+    flags: tuple[Flag, ...]
     passage: Passage = field(repr=False, compare=False)
 
-    def tab_key(self) -> tuple:
-        """What a tab shows (string, fret, stroke per note); hand positions left out."""
-        return tuple((choice.position, choice.stroke) for choice in self.choices)
+    def fingering_key(self) -> tuple:
+        """The fingering's (string, fret) per note; finger, hand position and strokes left out."""
+        return tuple(choice.position for choice in self.choices)
 
 
 def build_note_contexts(passage: Passage, config: CostConfig) -> list[NoteContext]:
@@ -153,14 +189,43 @@ def build_note_contexts(passage: Passage, config: CostConfig) -> list[NoteContex
     return contexts
 
 
+def build_hand_states(context: NoteContext, passage: Passage, profile: HandProfile,
+                      config: CostConfig) -> tuple[list[HandState], np.ndarray]:
+    """Every hand state that can play this note, and its per-note cost (stretch + open-string bend).
+
+    Args:
+        context: The note.
+        passage: The passage (guitar).
+        profile: The player's hand profile.
+        config: Cost knobs.
+    """
+    scale_length_mm = passage.guitar.scale_length_mm
+    states, costs = [], []
+    for position in context.positions:
+        bend = open_string_bend_cost(position.fret, context.bend, config)
+        for finger in ((0,) if position.fret == 0 else (1, 2, 3, 4)):
+            for hand in range(1, passage.guitar.highest_fret + 1):
+                stretch = finger_stretch_cost(position, finger, hand, profile, config, scale_length_mm,
+                                              passage.guitar.string_count)
+                if np.isfinite(stretch):
+                    states.append(HandState(position, finger, hand))
+                    costs.append(stretch + bend)
+    return states, np.array(costs)
+
+
 def stroke_allowed(context: NoteContext, stroke: str, config: CostConfig) -> bool:
     """Enforced articulations and hard rule #1 (no upstroke at a phrase start).
+
+    With the picking hand off, the stroke is fixed: NONE where an articulation forbids picking,
+    else DOWN.
 
     Args:
         context: The note.
         stroke: DOWN, UP or NONE.
         config: Cost knobs.
     """
+    if not config.picking_hand_on:
+        return stroke == (NONE if context.no_pick else DOWN)
     if context.no_pick and stroke != NONE:
         return False
     if stroke == UP and context.phrase_start and config.phrase_start_downstroke:
@@ -194,90 +259,112 @@ def slide_allowed(context: NoteContext, previous_position: Position | None, posi
     return previous_position.string == position.string
 
 
-def move_terms(context: NoteContext, previous_position: Position | None, previous_hand: int | None,
-               memory: PickMemory | None, gap_since_last_pick: float, position: Position, hand: int,
-               stroke: str, passage: Passage, config: CostConfig) -> tuple[dict[str, float], str | None]:
+def move_terms(context: NoteContext, previous: HandState | None, memory: PickMemory | None,
+               gap_since_last_pick: float, state: HandState, stroke: str, passage: Passage,
+               profile: HandProfile, config: CostConfig) -> tuple[dict[str, float], str | None]:
     """All cost terms of arriving at one note in one state. The single source of cost truth.
 
     Args:
         context: The arriving note.
-        previous_position: Previous playable note's position (None for the first note).
-        previous_hand: Previous hand position (None for the first note).
+        previous: Previous playable note's hand state (None for the first note).
         memory: The picking hand's last picked note before this one.
         gap_since_last_pick: Seconds since that picked note.
-        position: This note's position.
-        hand: This note's hand position.
+        state: This note's hand state.
         stroke: This note's stroke.
         passage: The passage (guitar geometry).
+        profile: The player's hand profile.
         config: Cost knobs.
     """
     scale_length_mm = passage.guitar.scale_length_mm
-    terms, case = picking_hand_terms(
-        memory, position.string, stroke, gap_since_last_pick,
-        legato_is_normal(context, previous_position, position),
-        context.gap_since_previous or 0.0, config)
-    if previous_hand is not None:
-        terms["shift"] = float(shift_cost(previous_hand, hand, context.gap_since_previous, config, scale_length_mm))
-    terms["stretch"] = float(stretch_cost(position.fret, hand, config, scale_length_mm))
-    terms["open_string_bend"] = open_string_bend_cost(position.fret, context.bend, config)
+    terms, case = {}, None
+    if config.picking_hand_on:
+        previous_position = previous.position if previous is not None else None
+        terms, case = picking_hand_terms(
+            memory, state.position.string, stroke, gap_since_last_pick,
+            legato_is_normal(context, previous_position, state.position),
+            context.gap_since_previous or 0.0, config)
+    if previous is not None:
+        # The same finger on a new fret is carried by the hand: inf unless the hand moves with it
+        terms["hand_shift"] = float(hand_shift_cost(previous.hand, state.hand, context.gap_since_previous,
+                                                    config, scale_length_mm)
+                                    + same_finger_cost(previous.position, previous.finger, previous.hand,
+                                                       state.position, state.finger, state.hand))
+    # Stretch: the finger from the hand position, plus the finger pair if the hand position stays
+    stretch = finger_stretch_cost(state.position, state.finger, state.hand, profile, config, scale_length_mm,
+                                  passage.guitar.string_count)
+    if previous is not None and previous.hand == state.hand:
+        stretch += finger_pair_cost(previous.position, previous.finger, state.position, state.finger,
+                                    profile, config, scale_length_mm)
+    terms["stretch"] = stretch
+    terms["open_string_bend"] = open_string_bend_cost(state.position.fret, context.bend, config)
     return terms, case
 
 
-def score_path(passage: Passage, contexts: list[NoteContext], path: list[tuple[Position, int, str]],
-               config: CostConfig, pick_memory_notes: int) -> Realisation:
-    """Cost of one route, move by move — used for the breakdown and to check the search.
+def score_path(passage: Passage, contexts: list[NoteContext], path: list[tuple[HandState, str]],
+               profile: HandProfile, config: CostConfig, pick_memory_notes: int) -> Realisation:
+    """Cost of one route, move by move, plus its flags — used for the breakdown and to check the search.
 
     Args:
         passage: The passage.
         contexts: From build_note_contexts.
-        path: (position, hand, stroke) per playable note.
+        path: (hand state, stroke) per playable note.
+        profile: The player's hand profile.
         config: Cost knobs.
         pick_memory_notes: Picking-hand memory length (as in the search).
     """
-    moves = []
+    moves, flags = [], []
     last_pick_index = None
     last_pick_position = last_pick_stroke = None
-    for index, (context, (position, hand, stroke)) in enumerate(zip(contexts, path)):
-        previous_position, previous_hand = (path[index - 1][0], path[index - 1][1]) if index else (None, None)
+    for index, (context, (state, stroke)) in enumerate(zip(contexts, path)):
+        previous = path[index - 1][0] if index else None
         memory, gap_since_last_pick = None, 0.0
         if last_pick_index is not None:
             # Beyond pick_memory_notes, the search only remembers that many notes back
             remembered_index = max(last_pick_index, index - 1 - pick_memory_notes)
             memory = PickMemory(last_pick_position.string, last_pick_stroke, index - last_pick_index)
             gap_since_last_pick = context.onset - contexts[remembered_index].onset
-        terms, case = move_terms(context, previous_position, previous_hand, memory, gap_since_last_pick,
-                                 position, hand, stroke, passage, config)
+        terms, case = move_terms(context, previous, memory, gap_since_last_pick, state, stroke, passage,
+                                 profile, config)
         total, cost = add_up_move(terms, config)
         moves.append(MoveCost(context.passage_index, terms, case, total, cost))
+        # Flag: the box would have kept the finger in reach of the old hand position, the hand couldn't
+        if (previous is not None and previous.hand != state.hand
+                and box_allows_but_hand_cannot(state.position, state.finger, previous.hand, profile, config,
+                                               passage.guitar.scale_length_mm)):
+            flags.append(Flag(context.passage_index, state.finger, previous.hand, state.hand))
         if stroke != NONE:
-            last_pick_index, last_pick_position, last_pick_stroke = index, position, stroke
+            last_pick_index, last_pick_position, last_pick_stroke = index, state.position, stroke
     return Realisation(choices=build_choices(passage, contexts, path), moves=tuple(moves),
-                       total_cost=sum(move.cost for move in moves), passage=passage)
+                       total_cost=sum(move.cost for move in moves), flags=tuple(flags), passage=passage)
 
 
 def build_choices(passage: Passage, contexts: list[NoteContext],
-                  path: list[tuple[Position, int, str]]) -> tuple[NoteChoice, ...]:
+                  path: list[tuple[HandState, str]]) -> tuple[NoteChoice, ...]:
     """One NoteChoice per passage event; null symbols get empty choices.
 
     Args:
         passage: The passage.
         contexts: From build_note_contexts.
-        path: (position, hand, stroke) per playable note.
+        path: (hand state, stroke) per playable note.
     """
     choices = [NoteChoice(index, None, None, None, None) for index in range(len(passage.notes))]
-    for context, (position, hand, stroke) in zip(contexts, path):
-        finger = 0 if position.fret == 0 else int(natural_finger(position.fret, hand))
-        choices[context.passage_index] = NoteChoice(context.passage_index, position, finger, hand, stroke)
+    for context, (state, stroke) in zip(contexts, path):
+        choices[context.passage_index] = NoteChoice(context.passage_index, state.position, state.finger,
+                                                    state.hand, stroke)
     return tuple(choices)
 
 
-def build_slots(string_count: int, pick_memory_notes: int) -> list[tuple[str, PickMemory | None]]:
+def build_slots(string_count: int, pick_memory_notes: int,
+                picking_hand_on: bool) -> list[tuple[str, PickMemory | None]]:
     """Every (stroke, picking-hand memory) combination a state can hold.
 
     Args:
         string_count: Strings on the guitar.
         pick_memory_notes: How many notes back the memory reaches.
+        picking_hand_on: False = no memory: DOWN and NONE only.
     """
+    if not picking_hand_on:
+        return [(DOWN, None), (NONE, None)]
     slots = [(DOWN, None), (UP, None), (NONE, None)]
     for string in range(1, string_count + 1):
         for stroke in (DOWN, UP):
@@ -286,16 +373,18 @@ def build_slots(string_count: int, pick_memory_notes: int) -> list[tuple[str, Pi
     return slots
 
 
-def predecessor_slots(slot: tuple[str, PickMemory | None], slots: list, pick_memory_notes: int) -> list[int]:
+def predecessor_slots(slot: tuple[str, PickMemory | None], slots: list, pick_memory_notes: int,
+                      picking_hand_on: bool) -> list[int]:
     """Which previous slots can lead to this slot (the memory has to line up).
 
     Args:
         slot: The arriving slot.
         slots: All slots (from build_slots).
         pick_memory_notes: Memory length.
+        picking_hand_on: False = no memory: every slot can lead to every slot.
     """
     stroke, memory = slot
-    if stroke != NONE:
+    if stroke != NONE or not picking_hand_on:
         return list(range(len(slots)))
     if memory is None:
         return [slots.index((NONE, None))]
@@ -308,74 +397,76 @@ def predecessor_slots(slot: tuple[str, PickMemory | None], slots: list, pick_mem
     return sources
 
 
-def search_realisations(passage: Passage, config: CostConfig, k_best: int, k_search_multiplier: int,
-                        pick_memory_notes: int) -> list[Realisation]:
-    """Find the k cheapest realisations with different tabs.
+def search_realisations(passage: Passage, config: CostConfig, profile: HandProfile, k_best: int,
+                        k_search_multiplier: int, pick_memory_notes: int) -> list[Realisation]:
+    """Find the k cheapest realisations with different fingerings.
 
     Args:
         passage: The passage.
         config: Cost knobs.
+        profile: The player's hand profile.
         k_best: How many realisations to return.
-        k_search_multiplier: Routes kept per state = k_best × this (hand-only variants are dropped).
+        k_search_multiplier: Routes kept per state = k_best × this (variants with the same
+            fingering are dropped).
         pick_memory_notes: Picking-hand memory length.
     """
     contexts = build_note_contexts(passage, config)
     if not contexts:
-        return [Realisation(build_choices(passage, [], []), (), 0.0, passage)]
+        return [Realisation(build_choices(passage, [], []), (), 0.0, (), passage)]
     k_routes = k_best * k_search_multiplier
-    hands = np.arange(1, passage.guitar.highest_fret + 1)
-    slots = build_slots(passage.guitar.string_count, pick_memory_notes)
+    slots = build_slots(passage.guitar.string_count, pick_memory_notes, config.picking_hand_on)
+    note_states, state_costs = zip(*(build_hand_states(context, passage, profile, config) for context in contexts))
 
-    # Column by column: best route values and back pointers per (position, hand, slot, rank)
-    values = [initial_values(contexts[0], hands, slots, k_routes, passage, config)]
+    # Column by column: best route values and back pointers per (hand state, slot, rank)
+    values = [initial_values(contexts[0], note_states[0], slots, k_routes, passage, profile, config)]
     back_pointers = [None]
     for index in range(1, len(contexts)):
-        column_values, column_back = next_column(contexts, index, values[-1], hands, slots, k_routes,
-                                                 passage, config, pick_memory_notes)
+        column_values, column_back = next_column(contexts, index, values[-1], note_states, state_costs, slots,
+                                                 k_routes, passage, profile, config, pick_memory_notes)
         values.append(column_values)
         back_pointers.append(column_back)
 
-    # The cheapest end states, traced back; drop routes whose tab repeats a cheaper one
+    # The cheapest end states, traced back; drop routes whose fingering repeats a cheaper one
     final = values[-1]
     order = np.argsort(final, axis=None, kind="stable")
     realisations, seen = [], set()
     for flat_index in order[:k_routes]:
         if not np.isfinite(final.flat[flat_index]):
             break
-        path = trace_back(np.unravel_index(flat_index, final.shape), back_pointers, contexts, hands, slots)
-        realisation = score_path(passage, contexts, path, config, pick_memory_notes)
+        path = trace_back(np.unravel_index(flat_index, final.shape), back_pointers, note_states, slots)
+        realisation = score_path(passage, contexts, path, profile, config, pick_memory_notes)
         # The breakdown must add up to what the search optimised
         if not np.isclose(realisation.total_cost, final.flat[flat_index], rtol=1e-9, atol=1e-9):
             raise RuntimeError(f"search total {final.flat[flat_index]} ≠ breakdown total {realisation.total_cost}")
-        if realisation.tab_key() in seen:
+        if realisation.fingering_key() in seen:
             continue
-        seen.add(realisation.tab_key())
+        seen.add(realisation.fingering_key())
         realisations.append(realisation)
         if len(realisations) == k_best:
             break
     return realisations
 
 
-def initial_values(context: NoteContext, hands: np.ndarray, slots: list, k_routes: int,
-                   passage: Passage, config: CostConfig) -> np.ndarray:
+def initial_values(context: NoteContext, states: list[HandState], slots: list, k_routes: int,
+                   passage: Passage, profile: HandProfile, config: CostConfig) -> np.ndarray:
     """Route values for the first playable note (only rank 0 is filled).
 
     Args:
         context: The first note.
-        hands: All hand positions.
+        states: Its hand states.
         slots: All slots.
         k_routes: Routes kept per state.
         passage: The passage.
+        profile: The player's hand profile.
         config: Cost knobs.
     """
-    values = np.full((len(context.positions), len(hands), len(slots), k_routes), np.inf)
+    values = np.full((len(states), len(slots), k_routes), np.inf)
     for slot_index, (stroke, memory) in enumerate(slots):
         if memory is not None or not stroke_allowed(context, stroke, config):
             continue
-        for position_index, position in enumerate(context.positions):
-            for hand_index, hand in enumerate(hands):
-                terms, _ = move_terms(context, None, None, None, 0.0, position, int(hand), stroke, passage, config)
-                values[position_index, hand_index, slot_index, 0] = add_up_move(terms, config)[1]
+        for state_index, state in enumerate(states):
+            terms, _ = move_terms(context, None, None, 0.0, state, stroke, passage, profile, config)
+            values[state_index, slot_index, 0] = add_up_move(terms, config)[1]
     return values
 
 
@@ -407,6 +498,9 @@ def picking_matrix(context: NoteContext, previous: NoteContext, slot: tuple, pre
         for index, position in enumerate(context.positions):
             if not slide_allowed(context, previous_position, position):
                 continue
+            if not config.picking_hand_on:
+                matrix[previous_index, index] = 0.0
+                continue
             terms, _ = picking_hand_terms(
                 seen_memory, position.string, stroke, gap_since_last_pick,
                 legato_is_normal(context, previous_position, position), context.gap_since_previous, config)
@@ -414,47 +508,89 @@ def picking_matrix(context: NoteContext, previous: NoteContext, slot: tuple, pre
     return matrix
 
 
-def next_column(contexts: list[NoteContext], index: int, previous_values: np.ndarray, hands: np.ndarray,
-                slots: list, k_routes: int, passage: Passage, config: CostConfig,
-                pick_memory_notes: int) -> tuple[np.ndarray, np.ndarray]:
+def fretting_matrix(previous_states: list[HandState], states: list[HandState], state_costs: np.ndarray,
+                    context: NoteContext, passage: Passage, profile: HandProfile,
+                    config: CostConfig) -> np.ndarray:
+    """Fretting-hand terms for every (previous hand state, hand state): hand shift + stretch + open bend.
+
+    Args:
+        previous_states: The previous note's hand states.
+        states: This note's hand states.
+        state_costs: This note's per-state costs (stretch from the hand position + open bend).
+        context: The arriving note.
+        passage: The passage (guitar geometry).
+        profile: The player's hand profile.
+        config: Cost knobs.
+
+    Returns:
+        Array (previous states, states); inf where two fingers can't play both under one hand position.
+    """
+    scale_length_mm = passage.guitar.scale_length_mm
+    previous_hands = np.array([state.hand for state in previous_states])
+    hands = np.array([state.hand for state in states])
+    matrix = hand_shift_cost(previous_hands[:, None], hands[None, :], context.gap_since_previous, config,
+                             scale_length_mm) + state_costs[None, :]
+
+    # The same finger on a new fret: the hand has to move with it
+    for previous_index, previous_state in enumerate(previous_states):
+        for index, state in enumerate(states):
+            if state.finger == previous_state.finger:
+                matrix[previous_index, index] += same_finger_cost(
+                    previous_state.position, previous_state.finger, previous_state.hand, state.position,
+                    state.finger, state.hand)
+
+    # Finger pairs: only where the hand position stays
+    states_by_hand = {}
+    for index, state in enumerate(states):
+        states_by_hand.setdefault(state.hand, []).append(index)
+    for previous_index, previous_state in enumerate(previous_states):
+        for index in states_by_hand.get(previous_state.hand, []):
+            state = states[index]
+            matrix[previous_index, index] += finger_pair_cost(
+                previous_state.position, previous_state.finger, state.position, state.finger, profile, config,
+                scale_length_mm)
+    return matrix
+
+
+def next_column(contexts: list[NoteContext], index: int, previous_values: np.ndarray, note_states: tuple,
+                state_costs: tuple, slots: list, k_routes: int, passage: Passage, profile: HandProfile,
+                config: CostConfig, pick_memory_notes: int) -> tuple[np.ndarray, np.ndarray]:
     """Extend every kept route by one note, keeping the k cheapest per new state.
 
     Args:
         contexts: All note contexts.
         index: The arriving note's index in contexts.
         previous_values: Route values of the previous column.
-        hands: All hand positions.
+        note_states: Hand states per note.
+        state_costs: Per-state costs per note (from build_hand_states).
         slots: All slots.
         k_routes: Routes kept per state.
         passage: The passage.
+        profile: The player's hand profile.
         config: Cost knobs.
         pick_memory_notes: Memory length.
 
     Returns:
-        Route values (positions, hands, slots, k) and back pointers (…, 4): previous position,
-        previous hand, previous slot, previous rank.
+        Route values (hand states, slots, k) and back pointers (…, 3): previous hand state,
+        previous slot, previous rank.
     """
     context, previous = contexts[index], contexts[index - 1]
-    scale_length_mm = passage.guitar.scale_length_mm
-    position_count, hand_count = len(context.positions), len(hands)
-    previous_position_count = len(previous.positions)
+    states, previous_states = note_states[index], note_states[index - 1]
+    state_count, previous_count = len(states), len(previous_states)
+    fretting = fretting_matrix(previous_states, states, state_costs[index], context, passage, profile, config)
+    # Each hand state's position, to spread the per-position picking terms over hand states
+    position_rows = np.array([previous.positions.index(state.position) for state in previous_states])
+    position_columns = np.array([context.positions.index(state.position) for state in states])
 
-    # Fretting-hand terms, independent of the slots: shift (hand → hand) + stretch + open bend
-    shift = shift_cost(hands[:, None], hands[None, :], context.gap_since_previous, config, scale_length_mm)
-    frets = np.array([position.fret for position in context.positions])
-    stretch = stretch_cost(frets[:, None], hands[None, :], config, scale_length_mm)
-    bend = np.array([open_string_bend_cost(position.fret, context.bend, config) for position in context.positions])
-    fretting = shift[:, None, :] + stretch[None, :, :] + bend[None, :, None]  # (prev hand, position, hand)
-
-    values = np.full((position_count, hand_count, len(slots), k_routes), np.inf)
-    back = np.full(values.shape + (4,), -1, dtype=np.int64)
-    alive_slots = [q for q in range(len(slots)) if np.isfinite(previous_values[:, :, q, 0]).any()]
+    values = np.full((state_count, len(slots), k_routes), np.inf)
+    back = np.full(values.shape + (3,), -1, dtype=np.int64)
+    alive_slots = [q for q in range(len(slots)) if np.isfinite(previous_values[:, q, 0]).any()]
 
     for slot_index, slot in enumerate(slots):
         if not stroke_allowed(context, slot[0], config):
             continue
         candidate_values, candidate_ids = [], []
-        for previous_slot_index in predecessor_slots(slot, slots, pick_memory_notes):
+        for previous_slot_index in predecessor_slots(slot, slots, pick_memory_notes, config.picking_hand_on):
             if previous_slot_index not in alive_slots:
                 continue
             previous_slot = slots[previous_slot_index]
@@ -462,11 +598,10 @@ def next_column(contexts: list[NoteContext], index: int, previous_values: np.nda
             picking = picking_matrix(context, previous, slot, previous_slot, gap_since_last_pick, passage, config)
             if not np.isfinite(picking).any():
                 continue
-            # Move cost for every (prev position, prev hand, position, hand), then + route values
-            move = (picking[:, None, :, None] + fretting[None, :, :, :]) ** config.big_move_exponent
-            routes = previous_values[:, :, previous_slot_index, :]  # (prev position, prev hand, k)
-            totals = routes[:, :, :, None, None] + move[:, :, None, :, :]
-            totals = totals.reshape(-1, position_count * hand_count)
+            # Move cost for every (prev state, state), then + route values
+            move = (picking[np.ix_(position_rows, position_columns)] + fretting) ** config.big_move_exponent
+            routes = previous_values[:, previous_slot_index, :]  # (prev state, k)
+            totals = (routes[:, :, None] + move[:, None, :]).reshape(-1, state_count)
             best_rows = keep_cheapest_rows(totals, k_routes)
             candidate_values.append(np.take_along_axis(totals, best_rows, axis=0))
             candidate_ids.append(np.stack([np.full_like(best_rows, previous_slot_index), best_rows]))
@@ -480,12 +615,11 @@ def next_column(contexts: list[NoteContext], index: int, previous_values: np.nda
         best_values = np.take_along_axis(merged_values, best, axis=0)
         best_slot = np.take_along_axis(merged_ids[0], best, axis=0)
         best_row = np.take_along_axis(merged_ids[1], best, axis=0)
-        previous_position, previous_hand, previous_rank = np.unravel_index(
-            best_row, (previous_position_count, hand_count, k_routes))
+        previous_state, previous_rank = np.unravel_index(best_row, (previous_count, k_routes))
         count = best_values.shape[0]
-        values[:, :, slot_index, :count] = best_values.T.reshape(position_count, hand_count, count)
-        for field, array in enumerate((previous_position, previous_hand, best_slot, previous_rank)):
-            back[:, :, slot_index, :count, field] = array.T.reshape(position_count, hand_count, count)
+        values[:, slot_index, :count] = best_values.T
+        for field_index, array in enumerate((previous_state, best_slot, previous_rank)):
+            back[:, slot_index, :count, field_index] = array.T
     return values, back
 
 
@@ -520,23 +654,21 @@ def gap_to_last_pick(contexts: list[NoteContext], index: int, previous_slot: tup
     return contexts[index].onset - contexts[index - 1 - previous_memory.notes_back].onset
 
 
-def trace_back(end_state: tuple, back_pointers: list, contexts: list[NoteContext], hands: np.ndarray,
-               slots: list) -> list[tuple[Position, int, str]]:
+def trace_back(end_state: tuple, back_pointers: list, note_states: tuple,
+               slots: list) -> list[tuple[HandState, str]]:
     """Follow back pointers from an end state to the first note.
 
     Args:
-        end_state: (position, hand, slot, rank) indices at the last note.
+        end_state: (hand state, slot, rank) indices at the last note.
         back_pointers: Per column, from next_column (None for the first).
-        contexts: All note contexts.
-        hands: All hand positions.
+        note_states: Hand states per note.
         slots: All slots.
     """
     path = []
-    position_index, hand_index, slot_index, rank = (int(value) for value in end_state)
-    for index in range(len(contexts) - 1, -1, -1):
-        path.append((contexts[index].positions[position_index], int(hands[hand_index]), slots[slot_index][0]))
+    state_index, slot_index, rank = (int(value) for value in end_state)
+    for index in range(len(note_states) - 1, -1, -1):
+        path.append((note_states[index][state_index], slots[slot_index][0]))
         if index == 0:
             break
-        position_index, hand_index, slot_index, rank = (
-            int(value) for value in back_pointers[index][position_index, hand_index, slot_index, rank])
+        state_index, slot_index, rank = (int(value) for value in back_pointers[index][state_index, slot_index, rank])
     return path[::-1]

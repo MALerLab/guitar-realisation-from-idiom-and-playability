@@ -84,6 +84,14 @@
 - **hand model** — GRIP's model of both hands (fretting + picking): fingers, spans in mm, positions,
   timing. Never "physics".
 - **ergonomic cost** — what the hand model charges for a move.
+- **box** — where the fretting hand plays for free: index on fret n → middle up to n+2, ring n+3, pinky n+4,
+  anywhere on the neck. Idiom, not the hand's limit; a stand-in until the idiom NN takes over.
+- **stretch box** — past the box, up to the player's clean max (hand profile, in mm); costs per mm.
+  Middle / ring / pinky pairs: past their comfy.
+- **hand shift** — the fretting hand moving to a new hand position (= the index finger's fret). Past the
+  clean max is never "impossible": the hand shifts. Never "slide" (a GP technique) or "move".
+- **minimum span** — how close two fingers can sit: fingers never cross; on the same fret, the lower finger
+  on the thicker string, at least as many strings apart as fingers apart. Breaking it = hand shift.
 - **idiom** — the shapes and patterns guitarists actually use, and where they break a line into
   chunks; learned from human tabs.
 - **chunk** — a run of notes the hand plays as one unit = shape (intervals + rhythm) + placement.
