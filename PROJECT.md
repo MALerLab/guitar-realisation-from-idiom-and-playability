@@ -2,6 +2,21 @@
 <!-- Repo facts a public reader could use; tracked. Private stuff (Notion, Jae, how Claude works
      here) → CLAUDE.md, untracked. -->
 
+## Direction (final, 2026-10-28; sharpened 2026-11-03)
+- Guitar gives every note several places to be played; each choice comes down to which hand it makes
+  easier. GRIP makes both hands easier; existing tools judge the fretting hand properly and the picking
+  hand barely (at most a flat cost per string change).
+- Notes in → a few good realisations, chosen like an experienced guitarist would:
+  - **hand model** (both hands) = the judge: what's comfy, a strain, or needs a hand shift
+  - **idiom catalogue** = chunks mined from human tabs (bigrams → n-grams → phrases), every way each is
+    played, filtered by the hand model; chooses between playable layouts, not hand-set cost terms
+  - **chooser** (provisional name) = stitches the passage from catalogue entries, the hand model where there's none
+- The picking hand changes the fingering only through which string each note sits on (string change vs
+  hand shift = the core trade); articulations (legato, bends…) come only from the source tab's marks, never added.
+- **Design spec: `docs/design_spec.md`** = the current picture (hand model v1.0): read it before any work on
+  the hand models, the catalogue or the chooser. It replaces `docs/optimiser_requirements.md` (R1–R13, legacy);
+  earlier cost versions are history, not reference.
+
 ## Layout rules
 - `src/grip/` = a shared library + thin entrypoints on top:
   - library: `core/` (guitar, passage, repo paths: anything more than one subpackage uses) · `formats/`
@@ -36,20 +51,19 @@
 - `experiments/`: `exp<NNN>_<YYMMDD>_<rest>`.
 
 ## Vocabulary (one word per concept, in code and docs)
-- **realisation** — one fingering (string + fret per note, possibly finger / hand position) plus
-  its **pick plan** (stroke per note: down, up, or none for a hammer-on / pull-off) for a fixed
-  pitch + timing passage. Both are chosen in one search. A set of realisations differs in
-  fingering; the pick plan shows the picking hand shaped each fingering.
+- **realisation** — one fingering (string + fret per note, possibly finger / hand position) for a fixed
+  pitch + timing passage. A set of realisations differs in fingering.
+- **pick plan** — a stroke per note (down, up, or none for a hammer-on / pull-off), written after the
+  search; each realisation gets one per habit (strict alt, eco).
 - **tab** — the full record of a passage: notes + how they're played (string/fret, articulations,
   pick strokes…), whatever the file format (GP, JSON, table).
 - **MIDI** — note-event files; a slice of a tab (pitch, timing; bends only as pitch curves). Never a tab.
 - **hand model** — GRIP's model of both hands (fretting + picking): fingers, spans in mm, positions,
   timing. Never "physics".
 - **ergonomic cost** — what the hand model charges for a move.
-- **box** — where the fretting hand plays for free: index on fret n → middle up to n+2, ring n+3, pinky n+4,
-  anywhere on the neck. Idiom, not the hand's limit; a stand-in until the idiom NN takes over.
-- **stretch box** — past the box, up to the player's clean max (hand profile, in mm); costs per mm.
-  Middle / ring / pinky pairs: past their comfy.
+- **free zone** — where the fretting hand plays for free: the player's comfy reach (hand profile, in mm),
+  per finger pair. Replaces the 5-fret **box** (index fret n → pinky n+4), still in the code until v1.0.
+- **stretch** — past the free zone, up to the player's clean max; costs per mm.
 - **hand shift** — the fretting hand moving to a new hand position (= the index finger's fret). Past the
   clean max is never "impossible": the hand shifts. Never "slide" (a GP technique) or "move".
 - **minimum span** — how close two fingers can sit: fingers never cross; on the same fret, the lower finger
@@ -68,16 +82,12 @@
   audit; e.g. Tablator, Bontempi). Never "baselines": that word is kept for GRIP's own baselines.
 
 ## Invariants
-- Generate → freeze candidates → analyse techniques. Full list: `docs/optimiser_requirements.md`.
-  - Generation prices the fretting hand and the picking hand with equal weight (pick direction,
-    string crossings, legato where it changes playability).
-  - No technique favouritism: generation never drops or ranks down a realisation for suiting
-    one technique badly. Technique compatibility is computed after generation.
-  - `grip.optimiser` never imports `grip.technique`, `grip.evaluation`, `grip.calibration` or
-    `grip.existing_tools` (enforced by `tests/test_import_rules.py`).
-  - The source tab's fingering and pickstroke marks never enter generation; its articulation
-    marks (bends, hammer-ons…) enter only where switched to enforced (R1); compatibility scores
-    never steer generation.
+- Generation prices both hands; their balance is tuned on test passages (`docs/design_spec.md` §10).
+- Neutral by default: no picking habit is favoured unless the user opts in; an opted-in habit steers generation.
+- `grip.optimiser` never imports `grip.technique`, `grip.evaluation`, `grip.calibration` or
+  `grip.existing_tools` (enforced by `tests/test_import_rules.py`).
+- The source tab's fingering and pickstroke marks never enter generation; articulations come only from
+  its marks, never added.
 - Source fingering = evidence, not target. Reference coverage is not the evaluation target.
 - Missing annotation ≠ negative label (incl. absent DadaGP technique tokens).
 - mySongBook data is never redistributed.

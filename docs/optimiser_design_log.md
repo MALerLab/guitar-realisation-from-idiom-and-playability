@@ -1,8 +1,8 @@
 # Optimiser design log
 
 Decisions for building GRIP's two-hand optimiser, made with Jae one topic at a time.
-Requirements (what the optimiser must do): `docs/optimiser_requirements.md`. This file records
-*how* we build it. Requirements win over this log in a conflict.
+Current picture: `docs/design_spec.md` (from 2026-11-03; replaces `docs/optimiser_requirements.md`,
+legacy). This file records the decisions and reasons, dated. The spec wins over this log in a conflict.
 
 - Notion: updated once per finished build chunk, not per decision.
 - Every finished build records **full intention vs current version's limitation** for each
@@ -511,9 +511,90 @@ Baseline for comparing v0.2 against the next cost version.
   of the box a small cost (the idiom NN may sort this out later).
 - **String skips too cheap**: the picking hand is off.
 
+## Picking hand model: planned (2026-11-03)
+Planning session with Jae, no code yet. Replaces the October picking table (§5, §7, §8: 17 hand-set
+case values): that was the knob-tuning world; choosing between playable moves is now the idiom
+catalogue's job, and the fewer hand model terms the better.
+- **The question that matters:** when does the right hand change what the left hand does? Only through
+  two things: **which string each note sits on**, and **picked vs legato**. Guitar gives every note
+  several places to be played; each choice comes down to which hand it makes easier. GRIP makes both
+  easier; existing tools judge the left hand properly, the right hand barely (at most a flat cost per
+  string change).
+- **Who does what:**
+  | who | does what |
+  |---|---|
+  | fretting hand model | how hard the left hand works: reach, stretches, hand shifts |
+  | picking hand model | strokes (stroke decider) + how hard string travel is |
+  | idiom catalogue | which playable layouts guitarists actually use, counted from tabs; the hand models veto or mark down the bonkers ones |
+  | chooser | stitches the passage from catalogue entries; the hand models where the catalogue has nothing |
+- **Picking hand model = stroke decider + one cost (string travel × time).** No other picking terms.
+  - The string travel cost is what lets the right hand argue with the left (e.g. one string with hand
+    shifts vs a box with crossings). Without it the left hand wins every trade (equal weight broken).
+- **Stroke decider:**
+  - picked notes alternate (down-up); rests and marked legato notes are skipped by the count
+    (down – rest – up)
+  - a phrase start is a downstroke
+  - habit switch per run: strict alt (default) or eco. Eco = repeat the stroke when the string change
+    goes the pick's way.
+  - sweep shape (one note per string, neighbouring strings, one direction, 3+ strings) is swept under
+    both habits: alt players sweep too (Jae has seen it: they sweep Becker, can't eco). Habit = where
+    sweeps are allowed.
+  - under strict alt the string choice never changes the strokes; under eco it does (a sweep shifts
+    every stroke after it)
+- **Flags = sticky notes for Jae** ("look at me, investigate"), not a cost. A flag goes on the end of the
+  previous phrase when the next phrase would start on an upstroke.
+  - eco: fingering can fix it (a sweep-able string change); strict alt: nothing fixes it, it stays a flag.
+    Whether that gives the right hand too little say: watch, fine for now.
+  - rarely fires for now: a hand-picked bar range is one phrase until the catalogue finds boundaries
+- **Legato and other articulations come only from the tab's marks.** No functional legato: added
+  legato changes the sound, and an easier tab only by changing the tab is rubbish. GIGO on
+  articulations; the hope is better fingers than the lowest-fret rule. Finding missing legato in
+  unmarked input (MIDI) = out of scope (possible follow-up project).
+- **Tempo stays out** of the hand models until a real example needs a different tab just because of
+  speed (project-long open question). Hand shift and string travel scale with time the same way, so
+  their order never flips with speed anyway.
+- **Pickslant: never tracked** (impossible to collect). Reconfirmed.
+- **Parked (later add-ons):** air strokes through short rests (Jae does it sometimes; non-deterministic;
+  notes either side of a short rest could be tagged "could flip later") · a long legato as a stroke
+  reset · hybrid picking + right-hand tapping · whether 3 notes per string is the canon shape (low
+  stakes: nothing gets vetoed by technique).
+- **Balance test (first bar to clear):** *Stratosphere* (`Stratosphere (2).gp3`, track 0): the one-string
+  bit (song bars 38–41, all string 1) vs a scale run across 3 strings. Both hands balanced when GRIP
+  picks the layout a guitarist would. Same passages through Tablator + Bontempi; hope: GRIP does better.
+  Other test material too. Weights: details pending.
+  - bars 37–41 also show an eco sweep shifting the strokes: down on string 4 fret 18 → down on string 3
+    fret 16 at the start of bar 37 puts every bar from 38 on an upstroke; strict alt doesn't.
+- **Old ruleset (`docs/optimiser_requirements.md` + invariants): mostly legacy** from the many-cost-terms
+  plan; Jae wants to read it through and decide what still holds, maybe bin it.
+
+## Design spec + hand model v1.0 (2026-11-03, second session)
+Planning with Jae, no code. The settled picture now lives in `docs/design_spec.md`; this entry keeps the reasons.
+- **v1.0** = the build target; cost v0.1 / v0.2, the October picking table and R1–R13 are legacy, not reference.
+- **Pick plans per realisation:** strokes carry no cost, so the fingerings rank the same under alt and eco;
+  the search finds fingerings once, each gets an alt plan and an eco plan. Replaces "habit switch per run".
+- **Habit = opt-in, steers generation.** Default neutral (alt and eco cost the same: nothing). R7's "never steer"
+  existed to keep a frozen candidate set clean for technique coverage tests; the part that holds is "no hidden
+  house style". Switched on: a cost on clashing layouts, weighed against hand shifts; a charge, never a bonus
+  (a per-move bonus pays the search to add moves). Shape not set in stone.
+- **Free zone = the player's comfy, everywhere; the 5-fret box retires.** Low on the neck the box wins over
+  ergonomics only as far as the idiomatic comfy (fret 1 → 4, Jae 2026-10-30), i.e. 4 frets; high up the hand
+  outgrows 5 frets. Considered and binned: free = box ∩ comfy (too strict: idiom keeps a little stretch free);
+  free = whichever is bigger (box wins low) → replaced by the box shrinking with the hand.
+- **User knobs = hand profile + habit.** "Fewer strings, more stretch" is not a third lever: it falls out of
+  hand size (profile) and the eco habit (Jae's own case: stubby fingers + eco → 3 notes per string anyway).
+  The hand-vs-hand balance is ours, not a user knob.
+- **Defaults keep real alternatives close in cost** so both reach the realisation set (9-note major scale:
+  3 strings over a 5-fret stretch vs 4 strings over 4 frets). With the 5-fret span free, the 3-string layout
+  wins every time once string changes cost → free zone tiers needed later.
+- **Every string change costs**, neighbouring crossings included (settles skips-only vs all crossings).
+- Probed (scratch, 2026-11-03): low on the neck the scaled finger pairs come out lopsided (fret 1, middle →
+  pinky +2: costs on string 1, free on string 6; +3: vetoed on string 1, allowed on string 6) → measure at fret 1.
+
 ## Next
-- Jae: read the code, run the licks guitar in hand, tune knobs against the findings above.
-- Then: chunk 2 (hybrid picking + right-hand tapping) and / or the Layer 1 experiment → Layer 2.
+- Build the picking hand model (`docs/design_spec.md` §5): string change cost first; balance on the
+  *Stratosphere* test.
+- Fretting hand fixes (spec §8): hand shift cost first.
+- Review R1–R13 with Jae, keep only what holds, bin the rest.
 
 ## Open questions
 For the next hand model iteration (Jae, 2026-11-02, code review of the hand model build):
@@ -526,6 +607,8 @@ For the next hand model iteration (Jae, 2026-11-02, code review of the hand mode
   Free stays. Note: CLAUDE.md "Finger pairs" still says two fingers on the same fret = clean max zone.
 - **Barre should cost.** The build charges nothing for one finger across strings on the same fret; Jae
   wants a cost there. CLAUDE.md "Finger pairs" still says barre = fine.
+  - Hanging (Jae, 2026-11-03): sweep shapes load the left hand with rolls (same fret on neighbouring
+    strings) → the barre / roll cost is the left hand's side of the sweep trade, not just a tidy-up.
 - **Flags lost their job.** Planned (2026-10-31) as a review queue of what the hand model vetoed; once
   nothing is impossible (past clean max = hand shift), a flag only marks where the box and the hand
   profile disagree, which never happens with Jae's profile and the +4 box. Rethink or bin.

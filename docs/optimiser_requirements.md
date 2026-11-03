@@ -1,5 +1,8 @@
 # Optimiser requirements
 
+> **Legacy (2026-11-03): superseded by `docs/design_spec.md`.** Kept until the R1–R13 review; history, not
+> reference. Where this file and the spec disagree, the spec holds.
+
 What GRIP's own two-hand optimiser must do. The optimiser takes a note sequence and generates
 a set of playable realisations (fingering + pick plan: string, fret and stroke per note, possibly
 finger / hand position), priced by the effort of both the fretting hand and the picking hand.
