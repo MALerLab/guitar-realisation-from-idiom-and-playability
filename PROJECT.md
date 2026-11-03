@@ -1,44 +1,6 @@
 # PROJECT.md — GRIP (Guitar Realisation from Idiom and Playability)
-<!-- Stable project facts for any coding agent. Claude Code reads this via CLAUDE.md,
-     Codex via AGENTS.md. Agent-specific behaviour lives in those files, not here. -->
-
-## What belongs here vs Notion
-- **Here:** what a coding agent would get wrong without it — environment, folder rules,
-  code vocabulary, invariants the code must enforce, data locations, verified gotchas.
-- **Notion:** the why and the what-next — project definition, reasoning, roadmap/status,
-  decisions + options considered, results, survey.
-- **Overlap:** state the rule here in one line + a Notion link; the reasoning lives in Notion.
-- **Conflict:** Notion wins on plan; this file wins on repo facts (checked against code).
-  - Exception: optimiser requirements. `docs/optimiser_requirements.md` wins; Notion mirrors it.
-- **Bloat:** long detail → `docs/*.md`, linked from here.
-
-## Notion
-- Hub: **GRIP : Guitar Realisation from Idiom and Playability** — `3e3cb37787438058920dfb43c0fed996`
-  - the hub is the project definition; the old Project Definition page is retired (2026-10-28)
-- Read the hub before any planning or status work.
-
-## Environment
-- `uv` project, Python 3.11. Never `pip install`.
-- `src/grip/` is an installed package (editable, via `uv sync`): import `grip.<subpackage>`, never `src.…`.
-- Commands: `uv run grip-optimise <lick.yaml>` · `uv run grip-viewer` · `uv run grip-build-manifest --config …`
-  · `uv run grip-existing-tool <tablator|bontempi> --midi … | --gp … --bars …` (declared in `pyproject.toml` →
-  `[project.scripts]`).
-- Dependency group `existing-tools` (PuLP + HiGHS, for the Bontempi port) installs by default with `uv sync`.
-- Node side (alphaTab, for `src/grip/formats/gp_parser.py`): after `uv sync`, run `uv run npm ci` once per
-  clone. `node_modules/` is untracked; `package-lock.json` pins alphaTab.
-
-## Worktree setup
-- New worktree → `./setup_worktree.sh`: submodules, `.venv`, `node_modules/`, and links to
-  untracked files kept in `~/storage/grip/` (the storage root).
-- Untracked but needed file → store it under `~/storage/grip/`, add one `link` line to the script.
-
-## Git remotes
-- Local checkout folder is `grip`; the GitHub repos carry the long name below.
-- One remote, `origin`: fetch from one URL, push to two. Both repos are **public**.
-  - fetch: `git@github.com:jae-gye/guitar-realisation-from-idiom-and-playability.git`
-  - push: the same URL + `git@github.com:MALerLab/guitar-realisation-from-idiom-and-playability.git`
-- One `git push` updates both; there is no separate MALerLab remote to fetch from.
-- Check: `git remote -v` → 1 fetch line, 2 push lines.
+<!-- Repo facts a public reader could use; tracked. Private stuff (Notion, Jae, how Claude works
+     here) → CLAUDE.md, untracked. -->
 
 ## Layout rules
 - `src/grip/` = a shared library + thin entrypoints on top:
@@ -119,9 +81,6 @@
 - Source fingering = evidence, not target. Reference coverage is not the evaluation target.
 - Missing annotation ≠ negative label (incl. absent DadaGP technique tokens).
 - mySongBook data is never redistributed.
-
-## Data on disk
-_(empty until data arrives)_
 
 ## Gotchas
 _(verified facts only)_
