@@ -25,5 +25,5 @@ song_names:
   artist_from: parent_folder
   title_from: file_stem
   # Untracked: ProgGP's song list is shared only on request (the public README lists artists only).
-  # A link into ~/storage/grip/name_maps/ (setup_worktree.sh); path from repo root
+  # Untracked; path from repo root
   name_map: data/name_maps/proggp_artist_title_map_v0.1.yaml

@@ -1,7 +1,7 @@
 """Serve the GRIP GP viewer: alphaTab draws and plays GP files and optimiser runs, and
-annotate mode records how Jae plays a passage (reference passages for calibration).
+annotate mode records how the player plays a passage (reference passages for calibration).
 
-The server listens on localhost on sym8; VS Code Remote-SSH forwards the port to the desktop.
+The server listens on localhost; on a remote machine, forward the port (e.g. VS Code Remote-SSH).
 It serves the page, alphaTab's browser build, a searchable track list from the datasets'
 manifests (DadaGP, GOAT, ProgGP), the raw bytes of GP files under a dataset root, and optimiser run files (JSON; the page turns
 them into a score) with every note's neck positions. It also runs the optimiser on a passage,

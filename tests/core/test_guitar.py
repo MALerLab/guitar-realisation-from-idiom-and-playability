@@ -22,7 +22,7 @@ def test_fret_12_is_half_the_scale_length():
 
 
 def test_same_fret_gap_is_wider_near_the_nut():
-    # R9 example: 3 frets span ≈ 97 mm near the nut vs ≈ 52 mm from fret 12
+    # Example: 3 frets span ≈ 97 mm near the nut vs ≈ 52 mm from fret 12
     assert distance_mm(1, 4, 648.0) == pytest.approx(97.3, abs=0.1)
     assert distance_mm(12, 15, 648.0) == pytest.approx(51.5, abs=0.1)
 

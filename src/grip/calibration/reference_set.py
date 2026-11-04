@@ -1,7 +1,7 @@
-"""Reference passages: how Jae plays a passage, the answer key the cost knobs are fitted to.
+"""Reference passages: how the player plays a passage, the answer key the cost knobs are fitted to.
 
 One JSON file per annotation (format grip_reference_passage): where the passage comes from (the
-same source fields as an optimiser run), a snapshot of the passage's notes, and how Jae plays it.
+same source fields as an optimiser run), a snapshot of the passage's notes, and how the player plays it.
 Several equally good ways to play one passage = several files with the same source; the fitter
 groups them by source, not by name. Per note, the annotation gives:
 - string + fret: required for every playable note (null for a null symbol)
@@ -147,7 +147,7 @@ def passage_snapshot(passage: dict[str, Any]) -> dict[str, Any]:
 
 
 def annotation_problems(passage: dict[str, Any], choices: list[dict[str, Any]]) -> list[str]:
-    """Everything wrong with one annotation, as lines for Jae; an empty list means it can be saved.
+    """Everything wrong with one annotation, as lines for the user; an empty list means it can be saved.
 
     Args:
         passage: The passage as a run file stores it.

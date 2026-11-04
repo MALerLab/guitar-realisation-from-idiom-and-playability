@@ -1,6 +1,6 @@
 """The note list every part of GRIP works on: a passage of notes with its tempo and guitar.
 
-The input contract (R1, design log topic 1): pitch + onset + duration per note, the tempo and the
+The input contract: pitch + onset + duration per note, the tempo and the
 guitar. Nothing about how the source tab plays it enters, except articulations switched to
 enforced (bends, hammer-ons / pull-offs, slides, left-hand taps). Chords, double-stops, dead notes
 and unreachable notes become null symbols: they keep their time but neither hand plays them.
@@ -100,7 +100,7 @@ def shift_tuning(guitar: GuitarSetup, semitones: int) -> tuple[GuitarSetup, list
 
 
 def mark_unreachable_notes(passage: Passage) -> Passage:
-    """Turn notes no string can reach into null symbols, and report each one (R8).
+    """Turn notes no string can reach into null symbols, and report each one.
 
     Args:
         passage: The passage with its guitar.

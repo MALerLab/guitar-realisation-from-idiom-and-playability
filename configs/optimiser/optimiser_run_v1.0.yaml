@@ -10,7 +10,7 @@ gp_parser_config: configs/formats/gp_parser_v0.1.yaml
 
 output:
   # Where `run_optimiser.py --save` writes one JSON file per run (path from the repo root).
-  # A link to ~/storage/grip/optimiser_runs/ made by setup_worktree.sh: shared by every worktree, off git.
+  # Untracked; can be a link to shared storage, off git.
   runs_folder: data/optimiser_runs
   # Flags (box said fine, the hand couldn't reach) are saved with this many notes either side
   flag_notes_around: 2

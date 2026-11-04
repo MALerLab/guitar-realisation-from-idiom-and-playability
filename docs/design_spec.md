@@ -1,11 +1,10 @@
 # GRIP design spec (hand model v1.0)
 The current picture of how GRIP's parts fit together: what is settled, what is still waiting on a cost.
-Not a log: when the picture changes, this file changes. The reasoning and dates live in
-`docs/optimiser_design_log.md`. Replaces `docs/optimiser_requirements.md` (R1–R13, legacy).
+Not a log: when the picture changes, this file changes.
 Read it before any work on the hand models, the catalogue or the chooser.
 
 - Settled 2026-11-03 (two planning sessions). Build target: hand model v1.0.
-- Earlier cost versions (v0.1, v0.2), the October picking table and R1–R13 are legacy: history, not reference.
+- Earlier cost versions (v0.1, v0.2), the October picking table and the earlier requirements list are legacy: history, not reference.
 
 ## 1. GRIP in one paragraph
 Guitar gives every note several places to be played, so every choice boils down to: does it make the
@@ -76,7 +75,7 @@ fretting hand properly and the picking hand barely: at most a flat cost per stri
 - **Defaults keep real alternatives close in cost**, so they all reach the realisation set and a preference
   can pick between them. E.g. a 9-note major scale run: 3 strings across a 5-fret stretch vs 4 strings
   across 4 frets.
-- Neutral by default is the one thing kept from R7: no hidden house style. A default that leaned towards one
+- Neutral by default is the one thing kept from the earlier requirements: no hidden house style. A default that leaned towards one
   habit would hand every other player tabs built for someone else's picking hand.
 
 ## 8. Pending costs
@@ -116,13 +115,13 @@ does better. Other test material too.
   of DadaGP `Stratosphere (2).gp3` track 0, one semitone up so E-standard frets match the Eb fingering
   (one stray note, harmless for the tests).
 - No DadaGP tab of it is a reference, ever: (2)'s printed fingering is unplayable for a 4-fingered human
-  and nowhere near how it's played (Jae, 2026-11-03).
+  and nowhere near how it's played (2026-11-03).
 
 ## 11. Retired
 - The 5-fret box as its own rule (→ free zone, §4).
 - The October picking table (17 hand-set case values) and every picking term but string change.
 - Generate → freeze candidates → analyse techniques; "compatibility scores never steer generation" (an
   opted-in habit now steers, §7). Technique coverage as an evaluation target probably goes with it: not
-  decided yet (R1–R13 review).
+  decided yet (review of the earlier requirements).
 - Equal weight between the hands as a rule (→ the balance, set on the Stratosphere test).
 - Cost v0.1 / v0.2 values.

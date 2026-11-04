@@ -1,6 +1,6 @@
 # Parser audit: PyGuitarPro v0.11 vs alphaTab v1.8.4
 
-_2026-09-23 · input for how `src/data/` loads GuitarPro files into one note-event format_
+_2026-09-23 · input for how `src/grip/formats/` loads GuitarPro files into one note-event format_
 
 ## TL;DR
 > Use alphaTab for every GuitarPro version, with PyGuitarPro kept as a cross-check.
@@ -17,7 +17,7 @@ _2026-09-23 · input for how `src/data/` loads GuitarPro files into one note-eve
   - alphaTab removes hammer-ons and slides that have no following note to land on, and simplifies bend curves.
 - **Python access**:
   - PyGuitarPro is a plain `uv add`.
-  - alphaTab needs Node.js, and there's no system install on sym8. This combination worked 🧪: the `nodejs-wheel` package from the Python Package Index (PyPI), the npm package `@coderline/alphatab@1.8.4`, and a small dump script.
+  - alphaTab needs Node.js, and there's no system install on the lab server. This combination worked 🧪: the `nodejs-wheel` package from the Python Package Index (PyPI), the npm package `@coderline/alphatab@1.8.4`, and a small dump script.
 - **My pick** is option D in §8: alphaTab for every version, run through a Node script that writes one JSON row per note. PyGuitarPro becomes a test-time cross-check on gp3–5.
 
 ## How to read this
@@ -188,7 +188,7 @@ alphaTab, the smallest headless route that worked 🧪:
 - **alphaTab**: `npm install @coderline/alphatab@1.8.4`, which is 14 MB with zero dependencies.
 - **load**: `alphaTab.importer.ScoreLoader.loadScoreFromBytes(bytes, new alphaTab.Settings())` (`AT/importer/ScoreLoader.ts:84-114`). It's synchronous and needs no browser.
 - **speed**: all 136 test files together took under 1 second 🧪.
-- **Deno fails** 🧪: sym8 has Deno (another JavaScript runtime), but alphaTab takes it for a browser and crashes on `window` (`AT/Environment.ts:741-779`).
+- **Deno fails** 🧪: the lab server has Deno (another JavaScript runtime), but alphaTab takes it for a browser and crashes on `window` (`AT/Environment.ts:741-779`).
 
 The smallest full-dump script:
 
@@ -226,7 +226,7 @@ What that JSON looks like 🧪:
 - **Bundled MIT, BSD, OFL and Apache parts**: these cover rendering and audio, which we don't use.
 - **nodejs-wheel**: MIT 🧪, according to its package metadata.
 
-## 8 · Options for `src/data/`
+## 8 · Options for `src/grip/formats/`
 > The real question is whether one parser's conventions or two parsers' conventions end up in our note events.
 
 | Option | What | Good | Bad |
@@ -239,23 +239,22 @@ What that JSON looks like 🧪:
 - **My pick is D**: one parser gives GOAT, DadaGP and mySongBook the same conventions. §5 shows alphaTab loses nothing we need on gp3–5, and the cross-check keeps that true across upgrades.
 
 ## Parser to-dos
-> Features the optimiser needs that the parser doesn't output yet. Origin: optimiser design
-> log (`docs/optimiser_design_log.md`), 2026-10-04.
+> Features the optimiser needs that the parser doesn't output yet (2026-10-04).
 
 | # | to-do | why | priority |
 |---|---|---|---|
-| 1 | ~~starting tempo (bpm) per song~~ — done 2026-10-05: `parse_gp_file_with_tempo` | R4 timing needs seconds, not just ticks | done |
+| 1 | ~~starting tempo (bpm) per song~~ — done 2026-10-05: `parse_gp_file_with_tempo` | timing needs seconds, not just ticks | done |
 | 2 | tempo changes within a song | correct seconds after a tempo change | later |
 | 3 | bend amount (semitones), per bent note | a bend switched off must become a fretted note at the bent-to pitch; the amount also decides the bending finger (index alone for small bends; ring / pinky with support for a full bend) | later; until then bends can't be switched off |
-| 4 | GP capo convention: fret relative to capo vs absolute; partial capo in gp3–5 | open question since the audit (capo not a requirement for now, R11) | later |
+| 4 | GP capo convention: fret relative to capo vs absolute; partial capo in gp3–5 | open question since the audit (capo not a requirement for now) | later |
 
-## Decisions for Jae
+## Decisions
 > Each row is one open choice. My pick is in bold, with one line of why.
 
 | # | Decision | Options | Pick | Why |
 |---|---|---|---|---|
 | 1 | parser route | A · B · C · D (§8) | **D** | one convention set, checked against the second parser |
-| 2 | where Node comes from | `nodejs-wheel` as a uv dependency · system Node on sym8 · Deno | **nodejs-wheel** | pinned in `uv.lock`, no admin needed; Deno fails today |
+| 2 | where Node comes from | `nodejs-wheel` as a uv dependency · system Node on the lab server · Deno | **nodejs-wheel** | pinned in `uv.lock`, no admin needed; Deno fails today |
 | 3 | where alphaTab comes from | npm package 1.8.4 with a `package-lock.json` · build from the submodule | **npm package** | same version as the submodule; a build would write into the read-only submodule |
 | 4 | what crosses from Node to Python | one flat row per note (JSONL) · the full `scoreToJson` dump | **flat rows** | about 100× smaller, and pitch and onset come from alphaTab's own getters |
 | 5 | string numbering | GP style (1 = highest) · alphaTab style (1 = lowest) | **GP style** | matches guitarists, tab, and PyGuitarPro |

@@ -2,7 +2,6 @@
 pitch can be played (its candidate positions).
 
 Strings are numbered 1 = thinnest, as in GP and grip/formats/gp_parser.py. Fret 0 = open string.
-Background: docs/optimiser_design_log.md, topic 2 (candidate positions).
 """
 
 from dataclasses import dataclass
@@ -13,7 +12,7 @@ import yaml
 
 @dataclass(frozen=True)
 class GuitarSetup:
-    """One guitar: a whole-song choice, not part of the fingering (R11).
+    """One guitar: a whole-song choice, not part of the fingering.
 
     Args:
         tuning: Open-string MIDI pitches, string 1 (thinnest) first; 6 or 7 strings.
@@ -58,7 +57,7 @@ def load_guitar_setup(config_path: Path) -> GuitarSetup:
 
 
 def fret_position_mm(fret: float, scale_length_mm: float) -> float:
-    """Distance from the nut to a fret, in mm (equal temperament, R9).
+    """Distance from the nut to a fret, in mm (equal temperament).
 
     Takes a float so a hand position between frets can be measured too.
 
@@ -83,7 +82,7 @@ def distance_mm(fret_a: float, fret_b: float, scale_length_mm: float) -> float:
 def candidate_positions(pitch: int, setup: GuitarSetup) -> list[Position]:
     """Every place on the neck that sounds this pitch, open strings included, no pruning.
 
-    An empty list means no string can reach the pitch; the caller reports it (R8: never drop
+    An empty list means no string can reach the pitch; the caller reports it (never drop
     or octave-shift a note silently).
 
     Args:

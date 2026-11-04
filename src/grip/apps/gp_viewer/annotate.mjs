@@ -380,11 +380,11 @@ function setupEditKeys() {
   });
 }
 
-// ---- Save: the page's own save box (the browser's Save dialog can only see the desktop's disk, not sym8's) ----
+// ---- Save: the page's own save box (the browser's Save dialog can only see the desktop's disk, not the server's) ----
 
 let saveDialog;
 let saveCheckTimer;
-// Jae chose "Overwrite" for the name in the box; any edit to the name clears it
+// The user chose "Overwrite" for the name in the box; any edit to the name clears it
 let saveOverwrite = false;
 // The name "New version" fills in, from the last check
 let saveNewVersionName = null;

@@ -1,6 +1,4 @@
 # PROJECT.md — GRIP (Guitar Realisation from Idiom and Playability)
-<!-- Repo facts a public reader could use; tracked. Private stuff (Notion, Jae, how Claude works
-     here) → CLAUDE.md, untracked. -->
 
 ## Direction (final, 2026-10-28; sharpened 2026-11-03)
 - Guitar gives every note several places to be played; each choice comes down to which hand it makes
@@ -14,16 +12,14 @@
 - The picking hand changes the fingering only through which string each note sits on (string change vs
   hand shift = the core trade); articulations (legato, bends…) come only from the source tab's marks, never added.
 - **Design spec: `docs/design_spec.md`** = the current picture (hand model v1.0): read it before any work on
-  the hand models, the catalogue or the chooser. It replaces `docs/optimiser_requirements.md` (R1–R13, legacy);
-  earlier cost versions are history, not reference.
+  the hand models, the catalogue or the chooser. Earlier cost versions are history, not reference.
 
 ## Layout rules
 - `src/grip/` = a shared library + thin entrypoints on top:
   - library: `core/` (guitar, passage, repo paths: anything more than one subpackage uses) · `formats/`
     (reading / writing files: GP, MIDI, licks, run records) · `optimiser/` (searches realisations; pure search,
-    no file reading) · `calibration/` (reference passages = Jae's fingerings, fitted against) · `data/`
+    no file reading) · `calibration/` (reference passages = a player's own fingerings, fitted against) · `data/`
     (manifest builder) · `existing_tools/` (other people's systems, run for comparison: Tablator, Bontempi)
-    · `technique/` · `evaluation/`
   - `pipelines/` = run wiring shared by entrypoints (config → passage → search → record)
   - entrypoints: `cli/` (commands: argparse + printing only) · `apps/gp_viewer/` (dev tool: browse GP
     files, run the optimiser and annotate passages in a browser)
@@ -35,7 +31,7 @@
   enter `configs/`. Used twice or proven useful → review and promote to `src/grip/`.
 - `manifests/*.parquet` = **indexes only** — ids, paths, splits, metadata, counts. Never
   musical content (notes, string/fret, techniques). Files live in `~/storage/grip/manifests/`,
-  untracked, linked into `manifests/` by `setup_worktree.sh`; the builder code + config
+  untracked, linked into `manifests/`; the builder code + config
   are tracked, so any manifest can be rebuilt. CSV only on demand, never tracked.
 - **Derived datasets** = anything holding musical content → `~/storage/...`, untracked.
   The repo is public: nothing from DadaGP / mySongBook may be committed.

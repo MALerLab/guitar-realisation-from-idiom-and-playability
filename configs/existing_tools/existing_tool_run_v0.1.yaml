@@ -11,5 +11,5 @@ gp_parser_config: configs/formats/gp_parser_v0.1.yaml
 # MIDI input: time signature used when the file has none (bar numbers for --bars)
 midi_default_beats_per_bar: 4
 output:
-  # Link to ~/storage/grip/existing_tool_runs (setup_worktree.sh)
+  # Untracked; can be a link to shared storage
   runs_folder: data/existing_tool_runs
