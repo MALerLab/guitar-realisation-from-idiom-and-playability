@@ -17,25 +17,19 @@ node_modules/
 # One-off / temporary scripts (promote to src/ once reused)
 /scripts/
 
-# Manifests: live in ~/storage/grip/manifests/, linked in by setup_worktree.sh; builders tracked, outputs not
+# Manifests: live in ~/storage/grip/manifests/, linked in; builders tracked, outputs not
 /manifests/*.parquet
 *.csv
 
-# Survey: findings and literature copies stay local (public repo); protocol + schema tracked
-docs/literature/**/*.pdf
-docs/survey/strands/
-docs/survey/run-*.md
-docs/survey/coordinator-report-*.md
-docs/survey/optimisers/*
-!docs/survey/optimisers/brief.md
+# Docs: only the public ones tracked; papers, survey write-ups and working notes stay local
+/docs/*
+!/docs/design_spec.md
+!/docs/parser_audit.md
 
-# Benchmark song list + mantra: local only
-docs/benchmark_songs.md
-docs/mantra.md
-
-# Claude Code files: kept in the main checkout; worktrees link to them via setup_worktree.sh
+# Local notes + worktree setup
 /CLAUDE.md
 /todo.md
+/setup_worktree.sh
 
 # Papers: their own private repo, not tracked here
 /papers/
