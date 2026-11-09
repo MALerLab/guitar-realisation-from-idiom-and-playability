@@ -5,7 +5,8 @@ Usage:
     uv run grip-optimise --gp song.gp5 --track 0 --bars 5-8
 Options: --k (how many realisations), --tempo (override bpm), --tuning-shift (retune every string
 by N semitones, pitches kept; e.g. -1 for a song in Eb saved as E standard), --voice, --breakdown (all moves),
---save (write the run as JSON to the run config's runs folder), --comment (added to the file name).
+--save (write the run as JSON to the run config's runs folder, one subfolder per hand model version),
+--comment (added to the file name).
 Tab rows: see grip.formats.run_record.
 """
 

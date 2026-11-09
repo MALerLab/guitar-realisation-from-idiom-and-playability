@@ -206,8 +206,49 @@ def free_run_path(runs_folder: Path, passage_name: str, comment: str | None) -> 
         comment: Optional free text from --comment.
     """
     parts = [datetime.now().strftime("%y%m%d"), passage_name] + ([comment] if comment else [])
-    stem = "_".join(re.sub(r"[^a-z0-9]+", "_", part.lower()).strip("_") for part in parts)
-    path, copy_number = runs_folder / f"{stem}.json", 2
+    return first_free_path(runs_folder, "_".join(file_name_words(part) for part in parts))
+
+
+def versioned_run_path(runs_folder: Path, version: str, song: str, bars: str | None, comment: str | None) -> Path:
+    """v<version>/v<version>_yymmdd_<song>[_bars<a>-<b>][_<comment>].json in the runs folder; _2, _3 … if taken.
+
+    Args:
+        runs_folder: Folder holding one subfolder per hand model version.
+        version: Hand model version, e.g. "1.1" (the cost config's).
+        song: Song or lick name (turned into lowercase words joined by _).
+        bars: Bar range as "37-41", or None for a lick.
+        comment: Optional free text from --comment.
+    """
+    version_folder = runs_folder / f"v{version}"
+    parts = [f"v{version}", datetime.now().strftime("%y%m%d"), file_name_words(song)]
+    parts += [f"bars{bars}"] if bars else []
+    parts += [file_name_words(comment)] if comment else []
+    return first_free_path(version_folder, "_".join(parts))
+
+
+def song_name(source: dict, passage_name: str) -> str:
+    """The song a run file is named after: a GP file's title, or the lick's name.
+
+    GP file names look like "Artist - Title (2)": the artist and the dataset's copy number are dropped.
+
+    Args:
+        source: The run source ({"gp": path, …} or {"lick": path, …}).
+        passage_name: The passage's name (a lick's name).
+    """
+    if "gp" not in source:
+        return passage_name
+    title = Path(source["gp"]).stem.split(" - ", 1)[-1]
+    return re.sub(r"\s*\(\d+\)$", "", title)
+
+
+def file_name_words(text: str) -> str:
+    """Lowercase letters and digits only, every other run of characters turned into one _."""
+    return re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")
+
+
+def first_free_path(folder: Path, stem: str) -> Path:
+    """folder/<stem>.json, or <stem>_2.json, _3 … if taken."""
+    path, copy_number = folder / f"{stem}.json", 2
     while path.exists():
-        path, copy_number = runs_folder / f"{stem}_{copy_number}.json", copy_number + 1
+        path, copy_number = folder / f"{stem}_{copy_number}.json", copy_number + 1
     return path

@@ -4,6 +4,7 @@ Shared by the optimiser CLI (grip.cli.run_optimiser) and the gp_viewer.
 """
 
 import json
+import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
@@ -15,12 +16,15 @@ from grip.core.hand import load_hand_profile
 from grip.core.passage import Passage
 from grip.core.paths import repo_root
 from grip.formats.passage_input import load_articulation_switches, load_gp_passage, load_lick
-from grip.formats.run_record import RUN_FILE_FORMAT, free_run_path, passage_to_dict, realisation_to_dict
+from grip.formats.run_record import (RUN_FILE_FORMAT, passage_to_dict, realisation_to_dict, song_name,
+                                     versioned_run_path)
 from grip.optimiser.cost_terms import TERM_HAND, load_cost_config
 from grip.optimiser.realisation_search import Realisation, search_realisations
 
 # Run-config fields that point at other config files (paths from the repo root)
 CONFIG_POINTERS = ("guitar_setup", "hand_profile", "cost_config", "gp_parser_config")
+# Folders whose uncommitted edits change what a run does (stamped into every run file)
+CODE_FOLDERS = ("src", "configs")
 
 
 def load_run_config(run_config_path: Path) -> dict:
@@ -54,12 +58,31 @@ def build_run_record(realisations: list[Realisation], source: dict, comment: str
     best = realisations[0]
     return {
         "format": RUN_FILE_FORMAT, "created": datetime.now().isoformat(timespec="seconds"),
+        "version": str(settings["cost_config"]["version"]), "code": code_stamp(),
         "comment": comment, "source": source, "search_seconds": round(search_seconds, 3),
         "term_hand": TERM_HAND, "settings": settings,
         "passage": passage_to_dict(best.passage),
         "realisations": [realisation_to_dict(realisation, rank, best, run_config["output"]["flag_notes_around"])
                          for rank, realisation in enumerate(realisations, start=1)],
     }
+
+
+def code_stamp() -> dict:
+    """Which code made a run: the git commit, plus uncommitted edits in the code + config folders.
+
+    "uncommitted_diff" (None when clean) and "untracked_files" let a run made mid-tweak be traced to its exact code.
+    All values are None if git can't be read.
+    """
+    def git(*arguments: str) -> str | None:
+        result = subprocess.run(["git", *arguments], cwd=repo_root(), capture_output=True, text=True)
+        return result.stdout if result.returncode == 0 else None
+
+    commit = git("rev-parse", "HEAD")
+    diff = git("diff", "HEAD", "--", *CODE_FOLDERS)
+    untracked = git("ls-files", "--others", "--exclude-standard", "--", *CODE_FOLDERS)
+    return {"git_commit": commit.strip() if commit else None,
+            "uncommitted_diff": diff or None,
+            "untracked_files": untracked.split() if untracked else None}
 
 
 def load_source_passage(source: dict, run_config_path: Path) -> Passage:
@@ -109,13 +132,16 @@ def run_search(source: dict, k_best: int | None, comment: str | None,
 
 
 def save_run_record(record: dict, run_config_path: Path) -> Path:
-    """Write a run record to the run config's runs folder under a free name; returns the path.
+    """Write a run record to its version's folder in the run config's runs folder; returns the path.
 
     Args:
         record: Output of build_run_record.
         run_config_path: The run config naming the runs folder.
     """
     runs_folder = repo_root() / load_run_config(run_config_path)["output"]["runs_folder"]
-    run_path = free_run_path(runs_folder, record["passage"]["name"], record["comment"])
+    source = record["source"]
+    run_path = versioned_run_path(runs_folder, record["version"], song_name(source, record["passage"]["name"]),
+                                  source.get("bars"), record["comment"])
+    run_path.parent.mkdir(exist_ok=True)
     run_path.write_text(json.dumps(record, indent=1, ensure_ascii=False))
     return run_path

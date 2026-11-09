@@ -44,6 +44,9 @@
     `src/grip/existing_tools/` unchanged, with the repo URL, commit and licence in the file header
     (Tablator). A port (our own code following someone's model) names its source the same way (Bontempi).
 - Existing-tool runs (`--save`) → `data/existing_tool_runs/` → `~/storage/grip/existing_tool_runs/`.
+- Optimiser runs (`--save`) → `data/optimiser_runs/v<version>/v<version>_<yymmdd>_<song>[_bars<a>-<b>].json`
+  → `~/storage/grip/optimiser_runs/`. Version = hand model version (the cost config's `version`); each run
+  file stamps it with the git commit and any uncommitted edits in `src/` + `configs/`.
 - `experiments/`: `exp<NNN>_<YYMMDD>_<rest>`.
 
 ## Vocabulary (one word per concept, in code and docs)
