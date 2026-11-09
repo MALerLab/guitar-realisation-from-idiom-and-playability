@@ -1,8 +1,9 @@
-"""Run the optimiser on a lick or a GP passage, print the realisations as tabs, optionally save as JSON.
+"""Run the optimiser on a lick, a GP passage or a MIDI file, print the realisations as tabs, optionally save as JSON.
 
 Usage:
     uv run grip-optimise tests/optimiser/licks/a_minor_arpeggio.yaml
     uv run grip-optimise --gp song.gp5 --track 0 --bars 5-8
+    uv run grip-optimise --midi "artist - song bars37-41 160bpm.mid" [--bars 1-2]
 Options: --k (how many realisations), --tempo (override bpm), --tuning-shift (retune every string
 by N semitones, pitches kept; e.g. -1 for a song in Eb saved as E standard), --voice, --breakdown (all moves),
 --save (write the run as JSON to the run config's runs folder, one subfolder per hand model version),
@@ -24,8 +25,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="GRIP optimiser (Layer 1): cheapest realisations of a passage")
     parser.add_argument("lick", nargs="?", help="hand-typed lick file (YAML)")
     parser.add_argument("--gp", help="GP file instead of a lick")
+    parser.add_argument("--midi", help="MIDI file instead of a lick")
     parser.add_argument("--track", type=int, default=0, help="GP track, from 0")
-    parser.add_argument("--bars", default="1-4", help="GP bar range, 1-based inclusive, e.g. 5-8")
+    parser.add_argument("--bars", help="bar range, 1-based inclusive, e.g. 5-8 (GP default 1-4, MIDI whole file)")
     parser.add_argument("--voice", type=int, default=0, help="GP voice, from 0")
     parser.add_argument("--tempo", type=float, help="override the tempo (bpm)")
     parser.add_argument("--tuning-shift", type=int, default=0,
@@ -37,11 +39,13 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.gp:
-        source = {"gp": args.gp, "track": args.track, "bars": args.bars, "voice": args.voice}
+        source = {"gp": args.gp, "track": args.track, "bars": args.bars or "1-4", "voice": args.voice}
+    elif args.midi:
+        source = {"midi": args.midi, "bars": args.bars}
     elif args.lick:
         source = {"lick": args.lick}
     else:
-        parser.error("give a lick file or --gp")
+        parser.error("give a lick file, --gp or --midi")
     source.update(tempo_override_bpm=args.tempo, tuning_shift=args.tuning_shift)
 
     realisations, record = run_search(source, args.k, args.comment, RUN_CONFIG)

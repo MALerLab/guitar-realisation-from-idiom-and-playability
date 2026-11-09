@@ -15,9 +15,10 @@ from grip.core.guitar import load_guitar_setup
 from grip.core.hand import load_hand_profile
 from grip.core.passage import Passage
 from grip.core.paths import repo_root
+from grip.formats.midi import load_midi_passage
 from grip.formats.passage_input import load_articulation_switches, load_gp_passage, load_lick
-from grip.formats.run_record import (RUN_FILE_FORMAT, passage_to_dict, realisation_to_dict, song_name,
-                                     versioned_run_path)
+from grip.formats.run_record import (RUN_FILE_FORMAT, bars_in_name, passage_to_dict, realisation_to_dict,
+                                     song_name, versioned_run_path)
 from grip.optimiser.cost_terms import TERM_HAND, load_cost_config
 from grip.optimiser.realisation_search import Realisation, search_realisations
 
@@ -89,8 +90,8 @@ def load_source_passage(source: dict, run_config_path: Path) -> Passage:
     """Load the passage a run source names, with the run config's guitar and articulation switches.
 
     Args:
-        source: {"lick": path} or {"gp": path, "track", "bars" ("5-8", 1-based inclusive), "voice"},
-            plus "tempo_override_bpm" (None = the file's) and "tuning_shift" (semitones).
+        source: {"lick": path}, {"gp": path, "track", "bars" ("5-8", 1-based inclusive), "voice"} or
+            {"midi": path, "bars" (None = whole file)}, plus "tempo_override_bpm" (None = the file's) and "tuning_shift" (semitones).
         run_config_path: The run config to read.
     """
     run_config = load_run_config(run_config_path)
@@ -101,6 +102,10 @@ def load_source_passage(source: dict, run_config_path: Path) -> Passage:
         first_bar, last_bar = (int(bar) for bar in source["bars"].split("-"))
         return load_gp_passage(Path(source["gp"]), source["track"], first_bar, last_bar, guitar, switches,
                                run_config["gp_parser_config"], source["voice"], tempo, tuning_shift)
+    if "midi" in source:
+        first_bar, last_bar = (None, None) if source.get("bars") is None else (int(bar) for bar in source["bars"].split("-"))
+        return load_midi_passage(Path(source["midi"]), guitar, run_config["midi_default_beats_per_bar"],
+                                 first_bar, last_bar, tempo, tuning_shift)
     return load_lick(Path(source["lick"]), guitar, switches, tempo, tuning_shift)
 
 
@@ -141,7 +146,7 @@ def save_run_record(record: dict, run_config_path: Path) -> Path:
     runs_folder = repo_root() / load_run_config(run_config_path)["output"]["runs_folder"]
     source = record["source"]
     run_path = versioned_run_path(runs_folder, record["version"], song_name(source, record["passage"]["name"]),
-                                  source.get("bars"), record["comment"])
+                                  bars_in_name(source), record["comment"])
     run_path.parent.mkdir(exist_ok=True)
     run_path.write_text(json.dumps(record, indent=1, ensure_ascii=False))
     return run_path

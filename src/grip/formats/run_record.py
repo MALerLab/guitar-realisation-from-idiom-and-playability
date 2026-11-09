@@ -227,18 +227,32 @@ def versioned_run_path(runs_folder: Path, version: str, song: str, bars: str | N
 
 
 def song_name(source: dict, passage_name: str) -> str:
-    """The song a run file is named after: a GP file's title, or the lick's name.
+    """The song a run file is named after: a GP or MIDI file's title, or the lick's name.
 
     GP file names look like "Artist - Title (2)": the artist and the dataset's copy number are dropped.
+    MIDI file names look like "artist - title[ bars<a>-<b> <bpm>bpm]": the artist, bars and bpm are dropped.
 
     Args:
-        source: The run source ({"gp": path, …} or {"lick": path, …}).
+        source: The run source ({"gp": path, …}, {"midi": path, …} or {"lick": path, …}).
         passage_name: The passage's name (a lick's name).
     """
-    if "gp" not in source:
+    file_path = source.get("gp") or source.get("midi")
+    if file_path is None:
         return passage_name
-    title = Path(source["gp"]).stem.split(" - ", 1)[-1]
-    return re.sub(r"\s*\(\d+\)$", "", title)
+    title = Path(file_path).stem.split(" - ", 1)[-1]
+    return re.sub(r"(\s*\(\d+\)|\s+bars\d+-\d+|\s+\d+bpm)+$", "", title)
+
+
+def bars_in_name(source: dict) -> str | None:
+    """The bar range a run file is named with, as "37-41": the run's --bars, else the MIDI file name's, else None.
+
+    Args:
+        source: The run source.
+    """
+    if source.get("bars"):
+        return source["bars"]
+    midi_bars = re.search(r"\bbars(\d+-\d+)\b", Path(source["midi"]).stem) if "midi" in source else None
+    return midi_bars.group(1) if midi_bars else None
 
 
 def file_name_words(text: str) -> str:

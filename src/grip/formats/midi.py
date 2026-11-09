@@ -12,7 +12,8 @@ from pathlib import Path
 import mido
 
 from grip.core.guitar import GuitarSetup
-from grip.core.passage import TICKS_PER_QUARTER, Note, Passage, mark_unreachable_notes, ticks_to_seconds
+from grip.core.passage import (TICKS_PER_QUARTER, Note, Passage, mark_unreachable_notes, shift_tuning,
+                               ticks_to_seconds)
 
 DEFAULT_TEMPO_BPM = 120.0
 
@@ -62,7 +63,7 @@ def read_midi_content(midi_path: Path) -> MidiContent:
 
 def load_midi_passage(midi_path: Path, guitar: GuitarSetup, default_beats_per_bar: float,
                       first_bar: int | None = None, last_bar: int | None = None,
-                      tempo_override_bpm: float | None = None) -> Passage:
+                      tempo_override_bpm: float | None = None, tuning_shift: int = 0) -> Passage:
     """Cut a passage out of a MIDI file: every note, or a bar range (1-based, inclusive).
 
     Args:
@@ -72,6 +73,7 @@ def load_midi_passage(midi_path: Path, guitar: GuitarSetup, default_beats_per_ba
         first_bar: First bar, 1-based; None = from the start.
         last_bar: Last bar, 1-based, inclusive; None = to the end.
         tempo_override_bpm: Replaces the file's tempo if given.
+        tuning_shift: Semitones to retune every string by (see shift_tuning).
     """
     content = read_midi_content(Path(midi_path))
     report = []
@@ -88,6 +90,8 @@ def load_midi_passage(midi_path: Path, guitar: GuitarSetup, default_beats_per_ba
     if content.beats_per_bar is None:
         report.append(f"no time signature in the file: {default_beats_per_bar:g} beats per bar assumed")
     ticks_per_bar = round(beats_per_bar * TICKS_PER_QUARTER)
+    guitar, shift_report = shift_tuning(guitar, tuning_shift)
+    report += shift_report
 
     # Keep the bar range, then group by onset: a group of more than one note is a chord
     first_index = 0 if first_bar is None else first_bar - 1

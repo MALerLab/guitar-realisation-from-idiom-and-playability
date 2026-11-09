@@ -8,6 +8,9 @@ hand_profile: configs/core/hand_profile/default.yaml
 cost_config: configs/optimiser/optimiser_cost_v1.0.yaml
 gp_parser_config: configs/formats/gp_parser_v0.1.yaml
 
+# Quarter notes per bar for a MIDI file with no time signature
+midi_default_beats_per_bar: 4
+
 output:
   # Where `run_optimiser.py --save` writes one JSON file per run (path from the repo root).
   # Untracked; can be a link to shared storage, off git.
