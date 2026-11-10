@@ -9,7 +9,7 @@ from grip.core.guitar import Position
 from grip.core.hand import HandProfile, load_hand_profile
 from grip.optimiser.cost_terms import (
     box_allows_but_hand_cannot, finger_pair_cost, finger_stretch_cost, hand_shift_cost, legato_terms,
-    load_cost_config, same_finger_cost, string_change_cost, time_multiplier,
+    load_cost_config, no_go_zone_cost, same_finger_cost, string_change_cost, time_multiplier,
 )
 from grip.pipelines.optimiser_run import load_run_config
 
@@ -137,3 +137,37 @@ def test_flag_when_the_box_allows_a_reach_the_hand_cannot_make():
     assert not box_allows_but_hand_cannot(Position(1, 9), PINKY, 5, PROFILE, CONFIG, SCALE)
     # Past the box isn't a flag: the box never promised it
     assert not box_allows_but_hand_cannot(Position(1, 10), PINKY, 5, small, CONFIG, SCALE)
+
+
+def no_go(string: int, fret: int, profile: HandProfile = PROFILE, config=CONFIG) -> float:
+    return no_go_zone_cost(Position(string, fret), profile, config)
+
+
+# A hand with made-up no-go marks, so the tests don't move when Jae's real marks change
+MARKED = HandProfile(high_fret=12, low_fret=1, high_spans={}, low_spans={},
+                     no_go_marks={6: (15, 19), 3: (21, None)})
+
+
+def test_no_go_zone_is_free_below_strain_then_climbs_faster_every_fret():
+    assert no_go(6, 14, MARKED) == 0.0
+    strain = [no_go(6, fret, MARKED) for fret in (15, 16, 17, 18)]
+    assert 0.0 < strain[0]
+    steps = [later - earlier for earlier, later in zip(strain, strain[1:])]
+    assert all(later > earlier for earlier, later in zip(steps, steps[1:]))
+
+
+def test_no_go_frets_cost_far_more_than_any_strain_fret():
+    assert no_go(6, 19, MARKED) == no_go(6, 24, MARKED) > 10 * no_go(6, 18, MARKED)
+    # No no_go_from: strain all the way up
+    assert 0.0 < no_go(3, 24, MARKED) < no_go(6, 19, MARKED)
+
+
+def test_no_go_zone_skips_open_and_unmarked_strings_and_a_seventh_string_borrows_string_six():
+    assert no_go(6, 0, MARKED) == 0.0
+    assert no_go(1, 24, MARKED) == 0.0
+    assert no_go(7, 20, MARKED) == no_go(6, 20, MARKED)
+
+
+def test_cost_v1_0_has_no_no_go_zone():
+    old_costs = load_cost_config(RUN_CONFIG.parent / "optimiser_cost_v1.0.yaml")
+    assert no_go(6, 22, PROFILE, old_costs) == 0.0

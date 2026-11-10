@@ -1,0 +1,39 @@
+# Optimiser run v1.1: everything one run uses, in one file. Read by src/grip/pipelines/optimiser_run.py.
+# The four pointers name other config files (paths from the repo root); the rest are settings.
+version: "1.1"
+
+# Which guitar, hand, cost knobs and GP parser this run uses
+guitar_setup: configs/core/guitar_setup/default.yaml
+hand_profile: configs/core/hand_profile/default.yaml
+cost_config: configs/optimiser/optimiser_cost_v1.1.yaml
+gp_parser_config: configs/formats/gp_parser_v0.1.yaml
+
+# Quarter notes per bar for a MIDI file with no time signature
+midi_default_beats_per_bar: 4
+
+output:
+  # Where `run_optimiser.py --save` writes one JSON file per run (path from the repo root).
+  # Untracked; can be a link to shared storage, off git.
+  runs_folder: data/optimiser_runs
+  # Flags (box said fine, the hand couldn't reach) are saved with this many notes either side
+  flag_notes_around: 2
+
+search:
+  # How many of the cheapest realisations to return (plain k-best)
+  k_best: 5
+  # The search keeps k_best × this many paths, then drops paths whose fingering (string, fret)
+  # repeats a cheaper one (they differ only in finger or hand position)
+  k_search_multiplier: 100
+
+pick_plans:
+  # One pick plan per habit for every realisation, written after the search. The first one is the
+  # one the tab's stroke row and the gp_viewer show.
+  habits: [alternate, economy]
+
+# Enforced articulations: true = the tab's mark is a fixed part of the music.
+# Bends can't be switched off yet (the parser doesn't keep the bend amount).
+articulations:
+  bend: true
+  legato: true         # hammer-on / pull-off marks
+  slide: true          # the note a slide lands on
+  left_hand_tap: true

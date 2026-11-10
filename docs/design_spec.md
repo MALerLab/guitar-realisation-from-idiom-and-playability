@@ -4,6 +4,7 @@ Not a log: when the picture changes, this file changes.
 Read it before any work on the hand models, the catalogue or the chooser.
 
 - Settled 2026-11-03 (two planning sessions). Build target: hand model v1.0.
+- 2026-11-09: no-go zone added (optimiser v1.1).
 - Earlier cost versions (v0.1, v0.2), the October picking table and the earlier requirements list are legacy: history, not reference.
 
 ## 1. GRIP in one paragraph
@@ -39,6 +40,14 @@ fretting hand properly and the picking hand barely: at most a flat cost per stri
 - **Stretch** = past the free zone, up to the player's clean max: costs per mm.
 - **Hand shift** = past the clean max, breaking the minimum span, or the same finger to a new fret.
   Never impossible: the hand shifts.
+- **No-go zone** = high frets on thick strings, where the heel and the thumb get in the way: a cost per
+  note, on top of stretch (so a strained reach up there is doubly hard to justify). Per string, from the
+  hand profile: free → **strain** from `strain_from` (climbs faster every fret: fine at first, then it
+  really sucks) → **no-go** from `no_go_from` (flat, so dear it never wins in practice: string 6 fret 22
+  lives here). Open strings never pay; a 7th string borrows string 6's marks.
+  - Jae's marks (2026-11-10): last comfy fret (pinky or ring) 19 / 20 / 21 / 22 on strings 6 / 5 / 4 / 3;
+    strings 1–2 free. For now no strain part: every fret above the mark is no-go (provisional, for
+    testing). The strain part stays in the code for when the catalogue runs.
 - Measured spans: index → pinky at fret 1 and fret 12; the other finger pairs at fret 12 only (fret 1 is
   scaled from fret 12 for now, and comes out lopsided: string 1 tighter than string 6).
 
@@ -87,7 +96,7 @@ Fretting hand
 4. **Barre / roll**: wanted, none yet. The fretting hand's side of the sweep trade (sweep shapes put the
    same fret on neighbouring strings).
 5. **Open strings**: free now, so overused.
-6. **No-go zone**: high frets on low strings (e.g. string 5 fret 22) unpriced.
+6. **No-go zone strain part**: off for now (§4); whether it comes back, and its knobs, once the catalogue runs.
 
 Picking hand
 

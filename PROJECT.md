@@ -63,6 +63,10 @@
 - **free zone** — where the fretting hand plays for free: the player's comfy reach (hand profile, in mm),
   per finger pair. Replaces the 5-fret **box** (index fret n → pinky n+4), still in the code until v1.0.
 - **stretch** — past the free zone, up to the player's clean max; costs per mm.
+- **no-go zone** — high frets on thick strings, where the heel and the thumb get in the way: a per-note
+  cost on top of stretch. Per string: free → **strain** (from `strain_from`, climbs faster every fret)
+  → **no-go** (from `no_go_from`, so dear it never wins). Marks in the hand profile; for now no strain
+  part (`strain_from` = `no_go_from`).
 - **hand shift** — the fretting hand moving to a new hand position (= the index finger's fret). Past the
   clean max is never "impossible": the hand shifts. Never "slide" (a GP technique) or "move".
 - **minimum span** — how close two fingers can sit: fingers never cross; on the same fret, the lower finger

@@ -20,7 +20,7 @@ import numpy as np
 import yaml
 
 from grip.core.guitar import Position, distance_mm
-from grip.core.hand import FINGER_NAMES, HandProfile, pair_span_mm
+from grip.core.hand import FINGER_NAMES, HandProfile, no_go_marks_for, pair_span_mm
 
 DOWN, UP, NONE = "down", "up", "none"
 TERM_HAND = {
@@ -30,6 +30,7 @@ TERM_HAND = {
     "hand_shift": "fretting",
     "stretch": "fretting",
     "open_string_bend": "fretting",
+    "no_go_zone": "fretting",
 }
 # Slack for comparing mm spans: a measured span converted to mm must count as reachable
 SPAN_TOLERANCE_MM = 1e-6
@@ -52,6 +53,9 @@ class CostConfig:
         hand_shift_at_reference: Cost of a hand shift of the reference distance, at the reference gap.
         hand_shift_exponent: Distance (in reference distances) is raised to this (> 1: one big leap
             costs more than small shifts covering the same distance).
+        no_go_one_fret: No-go zone cost on a string's strain_from fret.
+        no_go_exponent: Frets into the strain part are raised to this (> 1: fine at first, then it sucks).
+        no_go: Flat cost from a string's no_go_from fret up.
         reference_gap_seconds: Time between notes at which costs hold exactly as written.
         rest_min_beats: A rest at least this long starts a new phrase.
         bar_lines_start_phrases: Every bar line starts a new phrase.
@@ -67,6 +71,9 @@ class CostConfig:
     hand_shift_reference_mm: float
     hand_shift_at_reference: float
     hand_shift_exponent: float
+    no_go_one_fret: float
+    no_go_exponent: float
+    no_go: float
     reference_gap_seconds: float
     rest_min_beats: float
     bar_lines_start_phrases: bool
@@ -80,6 +87,8 @@ def load_cost_config(config_path: Path) -> CostConfig:
     """
     raw = yaml.safe_load(Path(config_path).read_text())
     fretting, picking = raw["fretting_hand"], raw["picking_hand"]
+    # Cost v1.0 has no no-go zone: it costs nothing there
+    no_go_zone = fretting.get("no_go_zone", {"one_fret": 0.0, "exponent": 1.0, "no_go": 0.0})
     return CostConfig(
         string_change_one_string=float(picking["string_change"]["one_string"]),
         string_change_exponent=float(picking["string_change"]["exponent"]),
@@ -92,6 +101,9 @@ def load_cost_config(config_path: Path) -> CostConfig:
         hand_shift_reference_mm=float(fretting["hand_shift"]["reference_mm"]),
         hand_shift_at_reference=float(fretting["hand_shift"]["at_reference"]),
         hand_shift_exponent=float(fretting["hand_shift"]["exponent"]),
+        no_go_one_fret=float(no_go_zone["one_fret"]),
+        no_go_exponent=float(no_go_zone["exponent"]),
+        no_go=float(no_go_zone["no_go"]),
         reference_gap_seconds=float(raw["timing"]["reference_gap_seconds"]),
         rest_min_beats=float(raw["phrase_start_proxies"]["rest_min_beats"]),
         bar_lines_start_phrases=bool(raw["phrase_start_proxies"]["bar_lines"]),
@@ -283,3 +295,25 @@ def open_string_bend_cost(fret: int, is_bend: bool, config: CostConfig) -> float
         config: Cost knobs.
     """
     return config.open_string_bend if is_bend and fret == 0 else 0.0
+
+
+def no_go_zone_cost(position: Position, profile: HandProfile, config: CostConfig) -> float:
+    """A note high on a thick string, where the heel and the thumb get in the way: per note, on top of stretch.
+
+    Free below the string's strain_from fret; from there one_fret × frets_in ** exponent (frets_in = 1
+    on strain_from itself); from no_go_from up, the flat no-go cost. Open strings and unmarked strings: 0.
+
+    Args:
+        position: The note's (string, fret).
+        profile: The player's hand profile (the no-go zone marks).
+        config: Cost knobs.
+    """
+    marks = no_go_marks_for(profile, position.string)
+    if position.fret == 0 or marks is None:
+        return 0.0
+    strain_from, no_go_from = marks
+    if no_go_from is not None and position.fret >= no_go_from:
+        return config.no_go
+    if position.fret < strain_from:
+        return 0.0
+    return config.no_go_one_fret * (position.fret - strain_from + 1) ** config.no_go_exponent

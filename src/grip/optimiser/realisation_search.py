@@ -25,7 +25,7 @@ from grip.core.hand import HandProfile
 from grip.core.passage import NO_PICK_ARTICULATIONS, Passage
 from grip.optimiser.cost_terms import (
     CostConfig, box_allows_but_hand_cannot, finger_pair_cost, finger_stretch_cost, hand_shift_cost, legato_terms,
-    open_string_bend_cost, same_finger_cost, string_change_cost,
+    no_go_zone_cost, open_string_bend_cost, same_finger_cost, string_change_cost,
 )
 from grip.optimiser.pick_plans import decide_strokes
 
@@ -214,7 +214,7 @@ def build_note_contexts(passage: Passage, config: CostConfig) -> list[NoteContex
 
 def build_hand_states(context: NoteContext, passage: Passage, profile: HandProfile,
                       config: CostConfig) -> tuple[list[HandState], np.ndarray]:
-    """Every hand state that can play this note, and its per-note cost (stretch + open-string bend).
+    """Every hand state that can play this note, and its per-note cost (stretch + open-string bend + no-go zone).
 
     Args:
         context: The note.
@@ -225,14 +225,16 @@ def build_hand_states(context: NoteContext, passage: Passage, profile: HandProfi
     scale_length_mm = passage.guitar.scale_length_mm
     states, costs = [], []
     for position in context.positions:
-        bend = open_string_bend_cost(position.fret, context.bend, config)
+        # Per-note costs that don't depend on the finger or the hand position
+        note_cost = (open_string_bend_cost(position.fret, context.bend, config)
+                     + no_go_zone_cost(position, profile, config))
         for finger in ((0,) if position.fret == 0 else (1, 2, 3, 4)):
             for hand in range(1, passage.guitar.highest_fret + 1):
                 stretch = finger_stretch_cost(position, finger, hand, profile, config, scale_length_mm,
                                               passage.guitar.string_count)
                 if np.isfinite(stretch):
                     states.append(HandState(position, finger, hand))
-                    costs.append(stretch + bend)
+                    costs.append(stretch + note_cost)
     return states, np.array(costs)
 
 
@@ -298,6 +300,7 @@ def move_terms(context: NoteContext, previous: HandState | None, last_pick_strin
                                     profile, config, scale_length_mm)
     terms["stretch"] = stretch
     terms["open_string_bend"] = open_string_bend_cost(state.position.fret, context.bend, config)
+    terms["no_go_zone"] = no_go_zone_cost(state.position, profile, config)
     return terms
 
 

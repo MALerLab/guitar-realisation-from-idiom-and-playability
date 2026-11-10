@@ -133,3 +133,18 @@ def test_open_string_bend_is_allowed_but_avoided():
     bend_config = replace(CONFIG, open_string_bend=10.0)
     realisation = search(make_passage([64], articulations={0: ["bend"]}), config=bend_config)[0]
     assert realisation.choices[0].position.fret > 0
+
+
+def test_no_go_zone_moves_a_line_off_high_frets_on_thick_strings():
+    # D E F# G: with the no-go zone off, the cheapest route runs up string 5 into the no-go frets
+    passage = make_passage([62, 64, 66, 67])
+    without = replace(CONFIG, no_go_one_fret=0.0, no_go=0.0)
+
+    def no_go_frets(config) -> list:
+        choices = search(passage, config=config)[0].choices
+        return [choice.position for choice in choices
+                if (marks := PROFILE.no_go_marks.get(choice.position.string))
+                and marks[1] is not None and choice.position.fret >= marks[1]]
+
+    assert no_go_frets(without)
+    assert not no_go_frets(CONFIG)

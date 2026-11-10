@@ -4,7 +4,7 @@ import pytest
 
 from grip.cli.run_optimiser import RUN_CONFIG
 from grip.core.guitar import distance_mm
-from grip.core.hand import load_hand_profile, pair_span_mm
+from grip.core.hand import load_hand_profile, no_go_marks_for, pair_span_mm
 from grip.pipelines.optimiser_run import load_run_config
 
 PROFILE = load_hand_profile(load_run_config(RUN_CONFIG)["hand_profile"])
@@ -42,3 +42,10 @@ def test_pairs_not_measured_low_grow_like_index_to_pinky():
     growth = pair_span_mm(PROFILE, INDEX, PINKY, 6, 1)[1] / pair_span_mm(PROFILE, INDEX, PINKY, 6, 12)[1]
     middle_low = pair_span_mm(PROFILE, INDEX, MIDDLE, 6, 1)[1]
     assert middle_low == pytest.approx(pair_span_mm(PROFILE, INDEX, MIDDLE, 6, 12)[1] * growth)
+
+
+def test_no_go_marks_load_per_string_and_a_seventh_string_borrows_string_six():
+    strain_from, no_go_from = no_go_marks_for(PROFILE, 6)
+    # strain_from == no_go_from: no strain part, straight to no-go
+    assert no_go_from is None or strain_from <= no_go_from
+    assert no_go_marks_for(PROFILE, 7) == no_go_marks_for(PROFILE, 6)

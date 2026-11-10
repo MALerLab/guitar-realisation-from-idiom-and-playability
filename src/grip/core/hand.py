@@ -8,11 +8,14 @@ the neck. Everything else is blended from them:
   measured only high on the neck grows low on the neck by the same factor as the pairs measured
   at both spots (index → pinky)
 
+The profile also holds the no-go zone marks: per string, the fret where reaching up there starts
+to strain, and the fret where it's a no-go (the heel and the thumb get in the way).
+
 Fingers: 1–4 = index … pinky. Strings: 1 = thinnest. A span = lower finger planted, the other
 finger toward the body.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
@@ -32,12 +35,15 @@ class HandProfile:
         low_fret: Lower finger's fret for the low-on-neck spans.
         high_spans: (lower finger, upper finger) → string → (comfy mm, clean max mm); all 6 pairs.
         low_spans: Same, for the pairs measured low on the neck.
+        no_go_marks: String → (strain_from fret, no_go_from fret or None). A string past the thickest
+            marked string borrows its marks (a 7th string borrows string 6); other unmarked strings are free.
     """
 
     high_fret: int
     low_fret: int
     high_spans: dict[tuple[int, int], dict[int, tuple[float, float]]]
     low_spans: dict[tuple[int, int], dict[int, tuple[float, float]]]
+    no_go_marks: dict[int, tuple[int, int | None]] = field(default_factory=dict)
 
 
 def read_spans_mm(section: dict, scale_length_mm: float) -> tuple[int, dict]:
@@ -72,7 +78,25 @@ def load_hand_profile(config_path: Path) -> HandProfile:
     scale_length_mm = float(raw["scale_length_mm"])
     high_fret, high_spans = read_spans_mm(raw["high_on_neck"], scale_length_mm)
     low_fret, low_spans = read_spans_mm(raw["low_on_neck"], scale_length_mm)
-    return HandProfile(high_fret, low_fret, high_spans, low_spans)
+    no_go_marks = {
+        int(string_key.removeprefix("string_")): (
+            int(marks["strain_from"]), None if marks["no_go_from"] is None else int(marks["no_go_from"]))
+        for string_key, marks in (raw.get("no_go_zone") or {}).items()
+    }
+    return HandProfile(high_fret, low_fret, high_spans, low_spans, no_go_marks)
+
+
+def no_go_marks_for(profile: HandProfile, string: int) -> tuple[int, int | None] | None:
+    """A string's no-go zone marks: (strain_from, no_go_from or None), or None if it's free everywhere.
+
+    Args:
+        profile: The hand profile.
+        string: The string (1 = thinnest).
+    """
+    if not profile.no_go_marks:
+        return None
+    thickest = max(profile.no_go_marks)
+    return profile.no_go_marks.get(min(string, thickest))
 
 
 def low_on_neck_spans(profile: HandProfile, pair: tuple[int, int], string: int) -> tuple[float, float]:
