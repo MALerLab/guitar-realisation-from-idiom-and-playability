@@ -5,6 +5,8 @@ Read it before any work on the hand models, the catalogue or the chooser.
 
 - Settled 2026-11-03 (two planning sessions). Build target: hand model v1.0.
 - 2026-11-09: no-go zone added (optimiser v1.1).
+- 2026-11-10: who decides what between the catalogue and the hand models (§2); the catalogue + chooser come
+  before the balance test (§10).
 - Earlier cost versions (v0.1, v0.2), the October picking table and the earlier requirements list are legacy: history, not reference.
 
 ## 1. GRIP in one paragraph
@@ -20,8 +22,18 @@ fretting hand properly and the picking hand barely: at most a flat cost per stri
 | idiom catalogue | chunks mined from human tabs (bigrams → n-grams → phrases), every way each is played, counted; the hand models veto or mark down the bonkers ones |
 | chooser (provisional name) | stitches the passage from catalogue entries; the hand models alone where the catalogue has nothing |
 
-- The catalogue covers whatever the two hand models miss and we don't want to add to them. How big its
-  job is gets measured (how well the hand models do alone), not decided up front.
+- **Catalogue = what's normal; hand models = what's possible for this player, and the gaps** (Jae, 2026-11-10).
+  Otherwise the hand models fight the catalogue mined from real tabs.
+  - A passage played from a catalogue entry pays **no stretch cost**: the hand models only veto what's
+    past this player's clean max (and the impossible: junk tabs).
+  - No entry, and the joins between entries: both hand models price everything, as now. Some passages
+    will never be in any catalogue (e.g. Waves).
+  - A veto hits one fingering of a chunk, not the chunk. Fallback: another fingering of the same chunk →
+    smaller chunks stitched → the hand models alone.
+  - Mined from everything, quality unchecked, no hand-flagging: the hand models bin the impossible; counts
+    drown the playable-but-odd (one dodgy tabber vs hundreds playing it the common way).
+  - The hand profile is this player, the catalogue the average player in the corpus: the one place the hand
+    models overrule the catalogue.
 - The picking hand changes the fingering only through **which string each note sits on**. String
   change vs hand shift is the core trade.
 
@@ -113,10 +125,12 @@ Both hands
 - A long legato as a stroke reset.
 - Hybrid picking, right-hand tapping.
 - Strokes in the catalogue (tabs barely mark strokes: the catalogue likely learns shapes, the decider adds strokes).
-- How far the hand models' veto reaches into the catalogue.
-- How the chooser weighs catalogue counts against hand model costs (after the hand models are measured alone).
+- How the chooser weighs catalogue counts against hand model costs (tuned with all three parts running).
 
 ## 10. First bar: the balance test
+**Order (2026-11-10):** finish the no-go zone (v1.1) → primitive catalogue + chooser → this test, with all
+three parts running. Balancing the hands without the catalogue tunes them for a job they lose half of.
+
 *Stratosphere* song bars 37–41 (an Eb song): the area for balancing both hands. Both hands are balanced
 when GRIP picks the layout a guitarist would. Same passages through Tablator and Bontempi; the hope is GRIP
 does better. Other test material too.
