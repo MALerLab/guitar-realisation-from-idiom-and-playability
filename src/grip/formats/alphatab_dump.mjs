@@ -35,6 +35,8 @@ function staffFields(track, staff) {
 function beatFields(bar, voice, beat) {
     return {
         barIndex: bar.index,
+        // The bar's full length from its time signature (a pickup bar is not shortened)
+        barDurationTick: bar.masterBar.calculateDuration(false),
         voiceIndex: voice.index,
         onsetTick: beat.absolutePlaybackStart,
         durationTick: beat.playbackDuration,
@@ -69,6 +71,8 @@ function noteFields(note) {
         slideInType: enumName(model.SlideInType, note.slideInType),
         slideOutType: enumName(model.SlideOutType, note.slideOutType),
         bendType: enumName(model.BendType, note.bendType),
+        // Highest point of the bend, in quarter tones; null for an unbent note
+        maxBendValue: note.maxBendPoint ? note.maxBendPoint.value : null,
         vibrato: enumName(model.VibratoType, note.vibrato),
         harmonicType: enumName(model.HarmonicType, note.harmonicType),
         accentuated: enumName(model.AccentuationType, note.accentuated),

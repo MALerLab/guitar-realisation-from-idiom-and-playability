@@ -271,3 +271,28 @@ def test_unimplemented_convention_is_refused() -> None:
     conventions["tied_notes"] = "separate"
     with pytest.raises(ValueError, match="tied_notes"):
         check_conventions_supported(conventions)
+
+
+def test_bend_height_matches_pyguitarpro() -> None:
+    # Both readers count bend points in quarter tones; ours reports the highest point in semitones
+    gp_path = TEST_DATA / "guitarpro5/bends.gp5"
+    reference_heights = [
+        max(point.value for point in note.effect.bend.points) / 2
+        for measure in guitarpro.parse(str(gp_path)).tracks[0].measures
+        for beat in measure.voices[0].beats
+        for note in beat.notes
+        if note.effect.bend
+    ]
+    ours = [event.bend_semitones for event in parse_ours(gp_path) if event.bend_semitones is not None]
+    assert ours == reference_heights == [2.0, 2.0, 6.0]
+
+
+def test_unbent_notes_have_no_bend_height() -> None:
+    events = parse_ours(TEST_DATA / "guitarpro5/hammer.gp5")
+    assert events and all(event.bend_semitones is None for event in events)
+
+
+def test_bar_duration_follows_the_time_signature() -> None:
+    # bends.gp5 is in 4/4: 4 quarter notes of 960 ticks
+    events = parse_ours(TEST_DATA / "guitarpro5/bends.gp5")
+    assert events and all(event.bar_duration_tick == 4 * 960 for event in events)

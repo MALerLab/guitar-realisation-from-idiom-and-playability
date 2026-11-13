@@ -113,6 +113,9 @@ class NoteEvent:
         techniques: Technique tags the file marks on this note; absent means "not marked".
         left_hand_finger: Fretting finger if the file marks one, e.g. "index".
         right_hand_finger: Picking-hand finger if the file marks one, e.g. "thumb".
+        bend_semitones: Highest point of the note's bend in semitones (0.5 = a quarter-tone bend);
+            None for an unbent note.
+        bar_duration_tick: Full length of the note's bar from its time signature, in ticks.
     """
 
     track_index: int
@@ -129,6 +132,8 @@ class NoteEvent:
     techniques: tuple[str, ...]
     left_hand_finger: str | None
     right_hand_finger: str | None
+    bend_semitones: float | None = None
+    bar_duration_tick: int | None = None
 
 
 def load_gp_parser_config(config_path: Path) -> GpParserConfig:
@@ -277,7 +282,20 @@ def row_to_note_event(row: dict[str, Any]) -> NoteEvent:
         techniques=technique_tags(row),
         left_hand_finger=FINGER_NAMES.get(row["leftHandFinger"]),
         right_hand_finger=FINGER_NAMES.get(row["rightHandFinger"]),
+        bend_semitones=bend_semitones(row),
+        bar_duration_tick=as_whole_ticks(row["barDurationTick"]),
     )
+
+
+def bend_semitones(row: dict[str, Any]) -> float | None:
+    """Return the bend's highest point in semitones (alphaTab counts quarter tones), or None if unbent.
+
+    Args:
+        row: One raw alphaTab row from the dump script.
+    """
+    if row["bendType"] == "None" or row["maxBendValue"] is None:
+        return None
+    return row["maxBendValue"] / 2
 
 
 def as_whole_ticks(ticks: float) -> int:
