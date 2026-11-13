@@ -1,0 +1,52 @@
+# Catalogue build v0.1: count every run, keep the layouts seen in enough songs, draw the membership line.
+# Rules: docs/design_spec.md §2. Read by src/grip/pipelines/catalogue_build.py.
+# Every number below is provisional: the corpus and the threshold are not chosen yet.
+version: "0.1"
+
+input:
+  # One row per track (paths from the repo root); `path` + `track_index` point at a GP file and track
+  tracks_manifest: manifests/dadagp_tracks.parquet
+  # Folder the manifest's `path` column starts from
+  dataset_root: ~/storage/grip/datasets/dadagp/DadaGP-v1.1
+  # Only tracks whose manifest columns equal these values are counted
+  track_filter:
+    guitar_or_bass: guitar
+  # Manifest column naming each track's song: runs count once per song. Each file is a song until
+  # DadaGP's duplicate versions are grouped (another job)
+  song_id_column: path
+  gp_parser_config: configs/formats/gp_parser_v0.1.yaml
+
+runs:
+  # Run lengths counted, in notes
+  min_notes: 2
+  max_notes: 16
+  # Silence of at least this many bars (from a note's end to the next note's start) ends a run
+  long_rest_bars: 1.0
+
+counting:
+  # A layout seen in fewer songs is dropped from the counts table (one-song runs are the bulk of the size)
+  min_songs_kept: 2
+
+membership:
+  # The movable line: a layout in at least this many songs passes. Rough placeholder until it is picked
+  # from the data (GOAT as ruler); moving it needs only `--membership-only`, no recount
+  member_min_songs: 5
+  # A run is a fragment when one single one-note-longer member holds at least this share of its occurrences
+  fragment_share: 0.9
+
+output:
+  # Builds go to <builds_dir>/catalogue_v<version>_<yymmdd>_<build_name>/; data/catalogue links to
+  # ~/storage/grip/catalogue (musical content: never in git)
+  builds_dir: data/catalogue
+  build_name: dadagp_rough
+
+runtime:
+  # GP files read in parallel (one Node process each)
+  worker_count: 16
+  # Tracks per work shard (one notes file + one runs file per length)
+  tracks_per_shard: 200
+  # DuckDB spills to the work folder past this
+  duckdb_memory_limit: 64GB
+  duckdb_threads: 16
+  # Seed for --sample-size (prototype runs on a random subset of tracks)
+  sample_seed: 0

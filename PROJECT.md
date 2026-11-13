@@ -20,6 +20,7 @@
     (reading / writing files: GP, MIDI, licks, run records) · `optimiser/` (searches realisations; pure search,
     no file reading) · `calibration/` (reference passages = a player's own fingerings, fitted against) · `data/`
     (manifest builder) · `existing_tools/` (other people's systems, run for comparison: Tablator, Bontempi)
+    · `catalogue/` (idiom catalogue builder: counts runs into the counts table, draws the membership line)
   - `pipelines/` = run wiring shared by entrypoints (config → passage → search → record)
   - entrypoints: `cli/` (commands: argparse + printing only) · `apps/gp_viewer/` (dev tool: browse GP
     files, run the optimiser and annotate passages in a browser)
@@ -47,6 +48,8 @@
 - Optimiser runs (`--save`) → `data/optimiser_runs/v<version>/v<version>_<yymmdd>_<song>[_bars<a>-<b>].json`
   → `~/storage/grip/optimiser_runs/`. Version = hand model version (the cost config's `version`); each run
   file stamps it with the git commit and any uncommitted edits in `src/` + `configs/`.
+- Catalogue builds → `data/catalogue/catalogue_v<version>_<yymmdd>_<build_name>/` → `~/storage/grip/catalogue/`
+  (counts table, occurrence list, notes table, membership table: musical content, never committed).
 - `experiments/`: `exp<NNN>_<YYMMDD>_<rest>`.
 
 ## Vocabulary (one word per concept, in code and docs)
@@ -74,6 +77,14 @@
 - **idiom** — the shapes and patterns guitarists actually use, and where they break a line into
   chunks; learned from human tabs.
 - **chunk** — a run of notes the hand plays as one unit = shape (intervals + rhythm) + placement.
+- **run** — any stretch of consecutive notes in a tab. **line** — a track's notes merged into one
+  sequence (all voices), the thing runs are cut from.
+- **entry** — a run pattern stored in the idiom catalogue: one layout under one interval path.
+  **member** — an entry past the membership line. **fragment** — a run that nearly always sits inside
+  one and the same longer member.
+- **interval path** — semitones from an entry's first note (+ bent / slide / natural harmonic marks):
+  the catalogue's lookup key. **layout** — where an entry's notes sit: string per note + fret relative
+  to the first note (open and natural harmonic as their own marks). No fingers.
 - **string numbers** — strings are named 1–6 (7 on a 7-string), 1 = highest-pitched (thin e),
   as in GP and `gp_parser.py`. Never letter names (e/B/G…) in code, docs or chat.
 - **technique compatibility** — which techniques a realisation's fingering supports, re-planned

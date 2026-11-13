@@ -58,8 +58,8 @@ fretting hand properly and the picking hand barely: at most a flat cost per stri
     mark and no restart: the hand does not travel to a new written fret. Saved per occurrence.
   - **natural harmonic**: its own mark with its exact string and fret; the note never slides along the neck
     with the shape (natural harmonics exist only at fixed spots, and sound a pitch that is not the fret's).
-  - bent and slide sit in the interval path too (the passage's own marks must match them); open is a
-    layout mark only.
+  - bent, slide and natural harmonic sit in the interval path too (the passage's own marks must match them;
+    a natural harmonic keeps the pitch the parser gives, unchanged); open is a layout mark only.
   - **Not marked, saved per occurrence**: hammer-ons and pull-offs (the fretting hand plays the same
     thing); pinch harmonics and any other harmonic the fretting hand frets normally (a normal note for the
     catalogue; "a pinch harmonic wants a downstroke" is a later rule for the stroke decider).
