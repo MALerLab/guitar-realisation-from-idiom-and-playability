@@ -5,6 +5,8 @@ The rules are docs/design_spec.md §2 ("Marks in a layout", "Where a run ends"):
 - a chord and a picking-hand tap leave an x: no run crosses it
 - silence of at least the long-rest limit (in bars) ends a run; shorter rests are invisible
 - dead notes are invisible: the run carries on across them
+- repeats (same string, fret and marks as the counted note before, no break between) fold into that note:
+  the fretting hand doesn't move and the string doesn't change, so a chug counts as one note
 - marks: open, natural harmonic (pinned to its fret), bent, slide (note-to-note slides only)
 Every note of the track stays in the table (role "note", "dead" or "x"), so what is saved per
 occurrence (bend height, slide distance, hammer-ons, dead notes, harmonic flags) can be looked up later.
@@ -21,6 +23,7 @@ from grip.formats.gp_parser import NoteEvent
 ROLE_NOTE = "note"  # counted in runs
 ROLE_DEAD = "dead"  # invisible: runs carry on across it
 ROLE_X = "x"  # chord or picking-hand tap: no run crosses it
+ROLE_REPEAT = "repeat"  # same place as the counted note before it: folded into that note
 
 # How a counted note sits in a layout
 KIND_FRETTED = 0  # a fret relative to the run, slides along the neck with the shape
@@ -36,16 +39,18 @@ GRACE_TAG_PREFIX = "grace_"
 BEND_TAG_PREFIX = "bend"
 
 
-def build_track_line(events: Sequence[NoteEvent], long_rest_bars: float) -> pd.DataFrame:
+def build_track_line(events: Sequence[NoteEvent], long_rest_bars: float, squash_repeats: bool) -> pd.DataFrame:
     """One row per note of the track in playing order, with its role, line position, run breaks and marks.
 
     Columns added to the notes: role, line_position (0.. for counted notes, -1 otherwise), break_before
     (True where a run may not reach back to the previous counted note), kind, bent, slide_landing,
-    slide_distance (frets, on the note a slide lands on).
+    slide_distance (frets, on the note a slide lands on), repeat_count (times the note is played in a row;
+    1 unless repeats are squashed).
 
     Args:
         events: All NoteEvents of one track, any order.
         long_rest_bars: Silence of at least this many bars ends a run.
+        squash_repeats: Fold repeated notes into the note before them.
     """
     notes = note_events_to_table(events)
     notes = notes.sort_values(["onset_tick", "is_grace", "string"], ascending=[True, False, True],
@@ -55,6 +60,9 @@ def build_track_line(events: Sequence[NoteEvent], long_rest_bars: float) -> pd.D
     notes["line_position"] = np.where(counted, counted.cumsum() - 1, -1)
     notes["break_before"] = run_breaks(notes, long_rest_bars)
     add_layout_marks(notes)
+    notes["repeat_count"] = np.where(counted, 1, 0).astype(np.int32)
+    if squash_repeats:
+        squash_repeated_notes(notes)
     return notes
 
 
@@ -166,6 +174,41 @@ def add_layout_marks(notes: pd.DataFrame) -> None:
         slide_distance[landings[is_slide]] = frets[landings[is_slide]] - frets[origins[is_slide]]
     notes["slide_landing"] = slide_landing
     notes["slide_distance"] = slide_distance
+
+
+def squash_repeated_notes(notes: pd.DataFrame) -> None:
+    """Fold each repeat into the counted note before it, in place: role "repeat", line positions renumbered.
+
+    A repeat = a counted note on the same string and fret, with the same kind and bent mark, as the counted
+    note before it, with no break between and no slide landing on it. The kept note's repeat_count says
+    how many times it is played in a row.
+
+    Args:
+        notes: The track's notes table with roles, breaks and marks.
+    """
+    counted_rows = np.flatnonzero(notes["role"].to_numpy() == ROLE_NOTE)
+    if counted_rows.size < 2:
+        return
+    previous_rows, rows = counted_rows[:-1], counted_rows[1:]
+    is_repeat_of_previous = np.ones(rows.size, dtype=bool)
+    for column in ("string", "fret", "kind", "bent"):
+        values = notes[column].to_numpy()
+        is_repeat_of_previous &= values[rows] == values[previous_rows]
+    is_repeat_of_previous &= ~notes["break_before"].to_numpy()[rows] & ~notes["slide_landing"].to_numpy()[rows]
+    is_repeat = np.concatenate([[False], is_repeat_of_previous])
+    # Each counted note belongs to the last kept note at or before it; count plays per kept note
+    kept_group = np.cumsum(~is_repeat) - 1
+    kept_rows = counted_rows[~is_repeat]
+    repeat_count = notes["repeat_count"].to_numpy().copy()
+    repeat_count[counted_rows[is_repeat]] = 0
+    repeat_count[kept_rows] = np.bincount(kept_group)
+    notes["repeat_count"] = repeat_count
+    roles = notes["role"].to_numpy().copy()
+    roles[counted_rows[is_repeat]] = ROLE_REPEAT
+    notes["role"] = roles
+    line_position = np.full(len(notes), -1)
+    line_position[kept_rows] = np.arange(kept_rows.size)
+    notes["line_position"] = line_position
 
 
 def counted_notes(line: pd.DataFrame) -> pd.DataFrame:

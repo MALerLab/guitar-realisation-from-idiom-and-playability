@@ -31,7 +31,8 @@ OCCURRENCES_FOLDER = "occurrences"
 # Columns of the notes table, in order (song_id, track_id first)
 NOTES_TABLE_COLUMNS = (
     "role", "line_position", "break_before", "bar_index", "onset_tick", "duration_tick", "string", "fret",
-    "pitch", "kind", "bent", "bend_semitones", "slide_landing", "slide_distance", "techniques",
+    "pitch", "kind", "bent", "bend_semitones", "slide_landing", "slide_distance", "repeat_count",
+    "techniques",
 )
 # Rows per batch when the counts are read back to add texts and prefix / suffix keys
 COUNTS_BATCH_ROWS = 1_000_000
@@ -45,6 +46,7 @@ class CountingSettings:
         min_notes: Shortest run counted.
         max_notes: Longest run counted.
         long_rest_bars: Silence of at least this many bars ends a run.
+        squash_repeats: Fold repeated notes (same string, fret and marks) into one note.
         min_songs_kept: A layout seen in fewer songs is dropped from the counts table.
         duckdb_memory_limit: DuckDB memory limit, e.g. "64GB"; it spills to disk past it.
         duckdb_threads: DuckDB worker threads.
@@ -53,6 +55,7 @@ class CountingSettings:
     min_notes: int
     max_notes: int
     long_rest_bars: float
+    squash_repeats: bool
     min_songs_kept: int
     duckdb_memory_limit: str
     duckdb_threads: int
@@ -92,7 +95,7 @@ def write_track_shard(tracks: Iterable[TrackNotes], work_dir: Path, shard_name: 
     run_tables: dict[int, list[pa.Table]] = {length: [] for length in range(settings.min_notes,
                                                                             settings.max_notes + 1)}
     for track in tracks:
-        line = build_track_line(track.events, settings.long_rest_bars)
+        line = build_track_line(track.events, settings.long_rest_bars, settings.squash_repeats)
         note_tables.append(notes_table_rows(line, track))
         line_notes = counted_notes(line)
         for length in run_tables:

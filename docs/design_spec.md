@@ -74,6 +74,9 @@ fretting hand properly and the picking hand barely: at most a flat cost per stri
     start, a config value). Shorter rests are invisible: a rest is rhythm, and rhythm stays out of the key.
   - **Dead notes are invisible too**, like a short rest (the fretting hand relaxes in place); saved per
     occurrence. As an x they would cut muted riffs into single notes.
+  - **Repeats fold into one note** (2026-11-16): the same string, fret and marks as the note before (no
+    break, no slide landing) is one note, its repeat count saved per occurrence. Neither hand changes
+    anything on a repeat; unsquashed, chugs filled the long lengths of the GOAT test build.
 - **How the catalogue is mined: count, keep, drop.**
   1. Count every run of every length across the corpus, no boundaries assumed (provisional: 2 to 16 notes).
   2. Keep the runs that show up often enough (the membership threshold, found from data).

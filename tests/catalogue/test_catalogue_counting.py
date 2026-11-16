@@ -156,6 +156,24 @@ def test_dead_notes_are_invisible(tmp_path):
     assert build.entry("5:0 5:+2 5:+3")["song_count"] == 2
 
 
+def test_repeated_notes_fold_into_one_but_unison_and_bent_repeats_stay_apart(tmp_path):
+    chug = [n(6, 5)] * 8 + [n(6, 7)]
+    build = build_toy(tmp_path, {
+        "chug a": [chug],
+        "chug b": [chug],
+        # Same pitch on another string is a real choice; an unbent then bent note is two notes
+        "unison and bend a": [[n(2, 5), n(1, 0), n(3, 9), n(3, 9, bend=2.0)]],
+        "unison and bend b": [[n(2, 5), n(1, 0), n(3, 9), n(3, 9, bend=2.0)]],
+    })
+    assert build.entry("6:0 6:+2")[["song_count", "occurrence_count"]].tolist() == [2, 2]
+    assert not build.has("6:0 6:0")
+    assert build.has("2:0 1:o")
+    assert build.has("3:0 3:0b")
+    chug_notes = build.notes[build.notes["song_id"] == 0]
+    assert chug_notes["role"].tolist() == ["note"] + ["repeat"] * 7 + ["note"]
+    assert chug_notes["repeat_count"].tolist() == [8] + [0] * 7 + [1]
+
+
 def test_picking_hand_tap_ends_the_run_and_fretting_hand_tap_is_a_normal_note(tmp_path):
     build = build_toy(tmp_path, {
         "picking hand taps a": [[n(1, 5), n(1, 7), n(1, 12, "tap"), n(1, 8), n(1, 10)]],

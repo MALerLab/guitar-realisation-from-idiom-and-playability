@@ -22,6 +22,8 @@ runs:
   max_notes: 16
   # Silence of at least this many bars (from a note's end to the next note's start) ends a run
   long_rest_bars: 1.0
+  # Fold a repeated note (same string, fret and marks as the note before) into that note: a chug is one note
+  squash_repeats: true
 
 counting:
   # A layout seen in fewer songs is dropped from the counts table (one-song runs are the bulk of the size)

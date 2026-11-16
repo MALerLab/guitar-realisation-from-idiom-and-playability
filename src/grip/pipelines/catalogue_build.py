@@ -86,6 +86,7 @@ def load_catalogue_build_config(config_path: Path) -> CatalogueBuildConfig:
             min_notes=int(raw["runs"]["min_notes"]),
             max_notes=int(raw["runs"]["max_notes"]),
             long_rest_bars=float(raw["runs"]["long_rest_bars"]),
+            squash_repeats=bool(raw["runs"]["squash_repeats"]),
             min_songs_kept=int(raw["counting"]["min_songs_kept"]),
             duckdb_memory_limit=str(raw["runtime"]["duckdb_memory_limit"]),
             duckdb_threads=int(raw["runtime"]["duckdb_threads"]),
