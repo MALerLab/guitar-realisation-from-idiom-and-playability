@@ -1,27 +1,29 @@
-// GRIP GP viewer, main script: alphaTab, the page state, drawing what is shown, the toolbar
-// (tracks, realisations, Run, Edit) and opening songs (GP files) and runs.
+// GRIP viewer, main script: alphaTab, the page state, drawing what is shown, the top bar
+// (tracks, realisations, Run pop-up, Edit), the sidebar and drawers, and opening songs (GP files) and runs.
 // The other files each get what they need from here through one `viewer` object when the page starts:
-//   annotate.mjs     note panel, selecting notes, the edit keys, the Save box
-//   file_picker.mjs  path box, songs / tracks list
-//   fretboard.mjs    the fretboard under the tab, and the tuning label's text
-//   track_mixer.mjs  the open song's tracks: mute, solo, volume
+//   annotate.mjs         note panel, selecting notes, the edit keys, the Save box
+//   file_picker.mjs      path box, the Datasets tab (songs / tracks search)
+//   storage_browser.mjs  the Files tab: recent files + the storage folder as on disk
+//   transport.mjs        the transport bar: play / pause, bars, scrub, loop, speed, their keys
+//   fretboard.mjs        the fretboard drawer, and the tuning label's text
+//   track_mixer.mjs      the open song's tracks: mute, solo, volume
 // choices_to_tex.mjs turns a passage played one way into alphaTex for drawing.
 import * as alphaTab from '/alphatab/alphaTab.mjs';
 import { annotationStrokeLetter, choicesToTex } from '/choices_to_tex.mjs';
 import { setupAnnotate } from '/annotate.mjs';
 import { setupFilePicker } from '/file_picker.mjs';
 import { setupFretboard, tuningText } from '/fretboard.mjs';
+import { setupStorageBrowser } from '/storage_browser.mjs';
 import { setupTrackMixer } from '/track_mixer.mjs';
+import { setupTransport } from '/transport.mjs';
 
 const element = (id) => document.getElementById(id);
 const statusLabel = element('status');
 const trackSelect = element('track-select');
 const realisationSelect = element('realisation-select');
-const playPauseButton = element('play-pause');
-const stopButton = element('stop');
 const viewport = element('viewport');
 
-// Encoding, soundfont, default k, the fretboard's fret count, the datasets and the reference folder come from the server config
+// Encoding, soundfont, default k, the fretboard's fret count, the datasets, the storage folder and the reference folder come from the server config
 const pageConfig = await (await fetch('/api/config')).json();
 element('k-best').value = pageConfig.k_best;
 
@@ -44,7 +46,7 @@ fileSettings.importer.encoding = pageConfig.text_encoding;
 
 const state = {
   song: null,         // the open song (GP file): { path, trackIndex, score, mixer (track_mixer.mjs: track index → sound settings) }
-  run: null,          // the open optimiser run: { name, run, positions }
+  run: null,          // the open run (optimiser or existing tool): { path, name, kind, label, run: { source, passage, realisations }, positions }
   annotation: null,   // { settings, passage, positions, choices, startChoices, startedFrom, dirty, report }
   view: null,         // what the score shows: { kind: 'song' } (song view) | { kind: 'realisation', rank } | { kind: 'annotation' }
   selection: [],      // selected passage note indices, in order (realisation + annotation views)
@@ -53,22 +55,13 @@ const state = {
 
 const CHANGED_NOTE_COLOUR = new alphaTab.model.Color(224, 90, 0);
 
-// ---- alphaTab: player buttons, progress, errors ----
+// ---- alphaTab: progress, errors (the transport bar is transport.mjs) ----
 
 api.error.on((error) => { statusLabel.textContent = `alphaTab error: ${error.message ?? error}`; });
 api.soundFontLoad.on((progress) => {
   statusLabel.textContent = `soundfont ${Math.round((100 * progress.loaded) / progress.total)}%`;
 });
-api.playerReady.on(() => {
-  playPauseButton.disabled = false;
-  stopButton.disabled = false;
-  statusLabel.textContent = '';
-});
-api.playerStateChanged.on((event) => {
-  playPauseButton.textContent = event.state === alphaTab.synth.PlayerState.Playing ? 'Pause' : 'Play';
-});
-playPauseButton.onclick = () => api.playPause();
-stopButton.onclick = () => api.stop();
+api.playerReady.on(() => { statusLabel.textContent = ''; });
 
 // ---- Small helpers ----
 
@@ -218,13 +211,16 @@ function currentBeatMap() {
 const viewer = {
   element, statusLabel, api, state, pageConfig, postJson, remember, recall,
   renderView, shownPassage, choicesDiffer, changedFromStart, currentBeatMap, updateDropdowns, openFile, showTrack,
+  showRunFile, onFileOpened,
 };
 const fretboard = setupFretboard(viewer);
 // annotate.mjs redraws the fretboard after each selection
 viewer.updateFretboard = fretboard.updateFretboard;
 const annotate = setupAnnotate(viewer);
 const mixer = setupTrackMixer(viewer);
+const transport = setupTransport(viewer);
 const filePicker = setupFilePicker(viewer);
+const storageBrowser = setupStorageBrowser(viewer);
 
 // ---- Drawing ----
 
@@ -233,6 +229,8 @@ let pendingScrollTop = null;
 /** Draw what state.view says: the GP file's track, or the passage played one way. Keeps the scroll position if asked. */
 function renderView(keepScroll = false) {
   pendingScrollTop = keepScroll ? viewport.scrollTop : null;
+  // Panels first: alphaTab lays the tab out to the width left once the right column shows or hides
+  updatePanels();
   const shown = shownPassage();
   if (state.view?.kind === 'song') {
     api.renderScore(state.song.score, [state.song.trackIndex]);
@@ -241,11 +239,14 @@ function renderView(keepScroll = false) {
     const choices = editing
       ? shown.choices.map((choice, index) => ({ ...choice, stroke_letter: annotationStrokeLetter(shown.passage, shown.choices, index) }))
       : shown.choices;
-    const trackName = editing ? `annotation (from ${state.annotation.startedFrom})` : `#${shown.realisation.rank} · cost ${shown.realisation.total_cost.toFixed(2)}`;
+    const trackName = editing
+      ? `annotation (from ${state.annotation.startedFrom})`
+      : `${state.run.label} #${shown.realisation.rank} · cost ${shown.realisation.total_cost.toFixed(2)}`;
     const score = alphaTab.importer.ScoreLoader.loadAlphaTex(choicesToTex(shown.passage, choices, shown.passage.name, trackName), new alphaTab.Settings());
     if (editing) colourChangedNotes(score);
     api.renderScore(score, [0]);
   }
+  if (!keepScroll) transport.resetPosition();
   updateTitle();
   updateTuningLabel();
   fretboard.updateFretboard();
@@ -254,6 +255,14 @@ function renderView(keepScroll = false) {
   annotate.updatePanel();
   mixer.updateMixer();
   mixer.applyMixer();
+}
+
+/** What shows around the tab: the empty-state hint until something is drawn, the note panel while a
+ *  passage (realisation / annotation) is shown, the mixer's "no song" line. */
+function updatePanels() {
+  document.body.classList.toggle('has-score', state.view !== null);
+  document.body.classList.toggle('details-open', shownPassage() !== null);
+  element('mixer-empty').hidden = Boolean(state.song);
 }
 
 /** Colour the fret numbers of annotation notes that differ from the starting draft. */
@@ -277,7 +286,8 @@ api.postRenderFinished.on(() => {
 function updateTitle() {
   const song = state.song?.score;
   const songTitle = song ? [song.artist, song.title].filter(Boolean).join(' — ') || '(untitled)' : null;
-  const passageName = shownPassage()?.passage.name;
+  const passageName = shownPassage() && state.run && state.view.kind === 'realisation'
+    ? `${shownPassage().passage.name} · ${state.run.label}` : shownPassage()?.passage.name;
   element('song-title').textContent = (state.view?.kind === 'song' ? songTitle : passageName ?? songTitle) ?? 'No file open';
 }
 
@@ -296,7 +306,7 @@ function updateDropdowns() {
 
   const options = [new Option('---', '')];
   for (const realisation of state.run?.run.realisations ?? []) {
-    options.push(new Option(`#${realisation.rank} · cost ${realisation.total_cost.toFixed(2)}`, `rank:${realisation.rank}`));
+    options.push(new Option(`${state.run.label} #${realisation.rank} · cost ${realisation.total_cost.toFixed(2)}`, `rank:${realisation.rank}`));
   }
   if (state.annotation) {
     options.push(new Option(`✎ annotation${state.annotation.dirty ? ' (unsaved)' : ''} — from ${state.annotation.startedFrom}`, 'annotation'));
@@ -310,6 +320,8 @@ function updateDropdowns() {
 
 function updateButtons() {
   element('run-button').disabled = !state.song;
+  element('run-toggle').disabled = !state.song;
+  if (!state.song) element('run-popover').hidden = true;
   element('edit-button').disabled = !(state.view?.kind === 'song' || state.view?.kind === 'realisation');
   element('save-button').disabled = !state.annotation;
 }
@@ -351,60 +363,51 @@ async function openFile(path, trackIndex = 0, searched = []) {
 }
 
 /**
- * Fetch a run and its positions, open its GP file if needed, and show realisation #1. The page state
- * (annotation, selection) changes only once everything has loaded, so a failed load leaves the page as it was.
+ * Fetch a run (optimiser or existing tool, with every note's positions), open its GP file if needed, and
+ * show realisation #1. The page state (annotation, selection) changes only once everything has loaded, so
+ * a failed load leaves the page as it was. True if it opened.
  *
  * Args:
- *   name: The run file's name.
+ *   path: The run file's full path.
  *   keepAnnotation: Keep the open annotation (a run on the same passage as it).
  */
-async function showRun(name, keepAnnotation = false) {
+async function showRun(path, keepAnnotation = false) {
   statusLabel.textContent = 'loading…';
-  const response = await fetch(`/api/run?name=${encodeURIComponent(name)}`);
+  const response = await fetch(`/api/run?${new URLSearchParams({ path })}`);
   if (!response.ok) {
     statusLabel.textContent = `server: ${response.status} ${response.statusText}`;
-    return;
+    return false;
   }
-  const run = await response.json();
-  if (run.format?.name !== 'grip_optimiser_run') {
-    statusLabel.textContent = `${name} is not an optimiser run file`;
-    return;
-  }
-  // Every note's neck positions, from the optimiser's own candidate_positions on the server
-  const positions = await (await fetch(`/api/positions?name=${encodeURIComponent(name)}`)).json();
-  if (run.source.gp && state.song?.path !== run.source.gp) {
-    if (!(await loadSong(run.source.gp, run.source.track))) return;
-  } else if (!run.source.gp) {
+  const view = await response.json();
+  const source = view.source;
+  if (source.gp && state.song?.path !== source.gp) {
+    if (!(await loadSong(source.gp, source.track))) return false;
+  } else if (!source.gp) {
     state.song = null;
   }
-  if (state.song) state.song.trackIndex = run.source.track ?? state.song.trackIndex;
+  if (state.song) state.song.trackIndex = source.track ?? state.song.trackIndex;
   statusLabel.textContent = '';
   filePicker.clearListSelection();
   if (!keepAnnotation) state.annotation = null;
   state.selection = [];
-  state.run = { name, run, positions };
-  fillRunBar(settingsFromSource(run.source), run.source.k_best);
+  state.run = {
+    path: view.path, name: view.name, kind: view.kind, label: view.label,
+    run: { source, passage: view.passage, realisations: view.realisations }, positions: view.positions,
+  };
+  fillRunBar(settingsFromSource(source), source.k_best);
   state.view = { kind: 'realisation', rank: 1 };
   renderView();
+  return true;
 }
 
-/** Fill the run picker with the server's run files, newest first. */
-async function refreshRunList() {
-  const names = await (await fetch('/api/runs')).json();
-  element('run-select').replaceChildren(new Option(`Optimiser runs (${names.length})…`, ''), ...names.map((name) => new Option(name, name)));
-}
-
-element('run-select').onchange = async (event) => {
-  const name = event.target.value;
-  event.target.value = '';
-  if (!name || !confirmDiscardAnnotation('Open another run')) return;
+/** Open a run file from the sidebar (asks first if an annotation has unsaved edits). True if it opened. */
+async function showRunFile(path) {
+  if (!confirmDiscardAnnotation('Open another run')) return false;
   api.stop();
-  await showRun(name);
-};
-element('runs-refresh').onclick = refreshRunList;
-refreshRunList();
+  return showRun(path);
+}
 
-// ---- Toolbar: dropdowns, Run, Edit, sidebar ----
+// ---- Top bar: dropdowns, Run pop-up, Edit ----
 
 /** Show one track of the open song in the song view (the track dropdown, or a click in the mixer). */
 function showTrack(trackIndex) {
@@ -434,6 +437,7 @@ async function runOptimiser() {
   if (state.annotation && !keepAnnotation && !confirmDiscardAnnotation('Run on a different passage')) return;
   const runButton = element('run-button');
   runButton.disabled = true;
+  element('run-popover').hidden = true;
   const started = Date.now();
   const timer = setInterval(() => { statusLabel.textContent = `running optimiser… ${Math.round((Date.now() - started) / 1000)} s`; }, 500);
   const kBest = element('k-best').value;
@@ -445,10 +449,19 @@ async function runOptimiser() {
     return;
   }
   api.stop();
-  await refreshRunList();
-  await showRun(reply.name, keepAnnotation);
+  storageBrowser.refresh();
+  await showRun(reply.path, keepAnnotation);
 }
 element('run-button').onclick = runOptimiser;
+
+// Run pop-up: opens under its button; Esc or a click elsewhere closes it
+element('run-toggle').onclick = () => { element('run-popover').hidden = !element('run-popover').hidden; };
+document.addEventListener('pointerdown', (event) => {
+  if (!event.target.closest('.popover-anchor')) element('run-popover').hidden = true;
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') element('run-popover').hidden = true;
+});
 
 /** Start an annotation from what is shown: a realisation (its choices) or the GP file (the tab's own marks). */
 async function startEditing() {
@@ -494,7 +507,9 @@ window.addEventListener('beforeunload', (event) => {
   if (state.annotation?.dirty) event.preventDefault();
 });
 
-/** Hide or show the file panel; remembered in this browser. */
+// ---- Sidebar, its tabs, the mixer drawer ----
+
+/** Hide or show the sidebar; remembered in this browser. */
 function setSidebarHidden(hidden) {
   document.body.classList.toggle('sidebar-hidden', hidden);
   remember('sidebarHidden', hidden ? '1' : '0');
@@ -502,6 +517,34 @@ function setSidebarHidden(hidden) {
 }
 element('sidebar-toggle').onclick = () => setSidebarHidden(!document.body.classList.contains('sidebar-hidden'));
 document.body.classList.toggle('sidebar-hidden', recall('sidebarHidden', '0') === '1');
+
+/** A file opened from the sidebar: tuck the sidebar away so the tab gets the room (☰ brings it back). */
+function onFileOpened() {
+  setSidebarHidden(true);
+}
+
+/** Show one sidebar tab ('storage' = Files, 'datasets'); remembered. */
+function showSidebarTab(name) {
+  for (const tab of document.querySelectorAll('.tabs .tab')) tab.setAttribute('aria-selected', String(tab.dataset.tab === name));
+  element('storage-tab').hidden = name !== 'storage';
+  element('datasets-tab').hidden = name !== 'datasets';
+  remember('sidebarTab', name);
+}
+for (const tab of document.querySelectorAll('.tabs .tab')) tab.onclick = () => showSidebarTab(tab.dataset.tab);
+showSidebarTab(recall('sidebarTab', 'storage'));
+
+/** Open or close the mixer drawer; remembered. */
+function setMixerOpen(open) {
+  document.body.classList.toggle('mixer-open', open);
+  element('mixer-toggle').setAttribute('aria-pressed', String(open));
+  remember('mixerOpen', open ? '1' : '0');
+  if (api.score) api.render();  // the tab's width changed
+}
+element('mixer-toggle').onclick = () => setMixerOpen(!document.body.classList.contains('mixer-open'));
+setMixerOpen(recall('mixerOpen', '0') === '1');
+
+// A clicked button gives focus back, so Space always means play / pause
+document.addEventListener('click', (event) => event.target.closest('button')?.blur());
 
 // The fretboard follows play / pause and the playback position. Kept last: alphaTab calls a new player
 // listener at once, and updateFretboard needs everything above to exist by then. (No midiLoaded listener:
@@ -513,3 +556,4 @@ api.playerPositionChanged.on((event) => fretboard.updateFretboard(event.currentT
 // ---- Start: empty note panel ----
 
 annotate.updatePanel();
+updatePanels();

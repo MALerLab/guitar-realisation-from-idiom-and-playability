@@ -1,15 +1,17 @@
-# GP viewer server v0.2: where it listens, which datasets it searches and opens, how alphaTab reads them.
+# GP viewer server v0.3: where it listens, which datasets it searches, what the storage browser shows,
+# how alphaTab reads files.
 # Read by src/grip/apps/gp_viewer/server.py. Paths are relative to the repo root unless they start with ~ or /.
 # v0.2: one dataset → a list of datasets (DadaGP, GOAT, ProgGP), each with its own folder and manifests.
-version: "0.2"
+# v0.3: storage browser (storage_root + browser section) replaces the flat runs folder.
+version: "0.3"
 
 server:
   # Localhost only; VS Code Remote-SSH forwards the port to the desktop browser
   host: 127.0.0.1
   port: 8765
 
-# One entry per dataset; keys match the manifests' `dataset` column. Only files under a dataset's
-# root can be opened (read only). Song-level columns are joined onto the track list on `path`.
+# One entry per dataset; keys match the manifests' `dataset` column. Short paths in the path box are
+# looked up under these roots (read only). Song-level columns are joined onto the track list on `path`.
 datasets:
   dadagp:
     label: DadaGP
@@ -28,8 +30,9 @@ datasets:
     songs_manifest: manifests/proggp_songs.parquet
 
 paths:
-  # Optimiser run files (run_optimiser.py --save); a link to ~/storage/grip/optimiser_runs/
-  runs_folder: data/optimiser_runs
+  # The storage browser shows this folder as on disk; GP and run files anywhere under it open (read only).
+  # Every result lands here: the repo's data/ folders are links into it.
+  storage_root: ~/storage/grip
   # The run config the Run button uses (guitar, cost knobs, search settings, runs folder)
   optimiser_run_config: configs/optimiser/optimiser_run_v1.1.yaml
   # Reference passages saved from annotate mode (src/grip/calibration/reference_set.py); off git
@@ -46,6 +49,14 @@ alphatab:
 browse_list:
   # Rows per page of the song / track list (previous / next / jump to page browse the rest)
   page_size: 100
+
+browser:
+  # The storage folder is walked again when the last walk is older than this (a walk takes ~0.15 s)
+  index_max_age_seconds: 5
+  # How many of the newest files the "recent" list shows
+  recent_count: 30
+  # Files never shown: DadaGP's token re-saves (PROJECT.md gotcha: read the original gp3/gp4/gp5)
+  hidden_name_endings: [.gp2tokens2gp.gp5]
 
 gp_files:
   # Extensions the file endpoint will serve

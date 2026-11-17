@@ -1,8 +1,9 @@
-// GRIP GP viewer, file picker: the path box, the songs / tracks switch, one box per dataset, and the
-// searchable list (manifest rows from the server, one page at a time). viewer.mjs calls setupFilePicker once at start.
+// GRIP viewer, file picker: the path box, and the sidebar's Datasets tab: the songs / tracks switch, one box
+// per dataset, and the searchable list (manifest rows from the server, one page at a time).
+// viewer.mjs calls setupFilePicker once at start.
 
 // What viewer.mjs shares, set once by setupFilePicker
-let element, pageConfig, openFile, remember, recall;
+let element, pageConfig, openFile, remember, recall, onFileOpened;
 // Dataset name → its label, for the list rows
 let datasetLabels;
 // What the list shows: { kind: 'songs' | 'tracks', filters, page, countText(result) }; paging re-asks with another page
@@ -16,7 +17,7 @@ const pageNavs = [];
  * Returns { clearListSelection } for viewer.mjs to call when something else is opened.
  */
 export function setupFilePicker(viewer) {
-  ({ element, pageConfig, openFile, remember, recall } = viewer);
+  ({ element, pageConfig, openFile, remember, recall, onFileOpened } = viewer);
   datasetLabels = Object.fromEntries(pageConfig.datasets.map(({ name, label }) => [name, label]));
 
   // A path with a folder opens directly; a bare file name is looked up first (openByFileName)
@@ -24,7 +25,7 @@ export function setupFilePicker(viewer) {
     event.preventDefault();
     const path = element('path-input').value.trim();
     if (!path) return;
-    if (path.includes('/')) openFile(path, 0, tickedDatasets());
+    if (path.includes('/')) openFile(path, 0, tickedDatasets()).then((opened) => opened && onFileOpened());
     else openByFileName(path);
   };
 
@@ -122,7 +123,10 @@ function buildListRow(row, lines, trackIndex) {
     item.append(line);
   }
   item.onclick = async () => {
-    if (await openFile(row.gp_path, trackIndex)) item.classList.add('selected');
+    if (!(await openFile(row.gp_path, trackIndex))) return;
+    for (const selected of document.querySelectorAll('.file-list li.selected')) selected.classList.remove('selected');
+    item.classList.add('selected');
+    onFileOpened();
   };
   return item;
 }

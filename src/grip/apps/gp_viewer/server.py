@@ -3,15 +3,17 @@ annotate mode records how the player plays a passage (reference passages for cal
 
 The server listens on localhost; on a remote machine, forward the port (e.g. VS Code Remote-SSH).
 This file is the HTTP side only: config, the route table, and sending replies. Each job lives in its
-own module, free of HTTP: datasets.py (song / track search, GP files), runs.py (optimiser runs),
-annotate.py (reference passages). The page itself (HTML, scripts, styles) lives in page/.
-Settings: configs/gp_viewer/server_v0.2.yaml.
+own module, free of HTTP: datasets.py (song / track search, GP files), storage.py (the storage browser),
+runs.py (optimiser + existing-tool runs), annotate.py (reference passages). The page itself (HTML,
+scripts, styles) lives in page/.
+Settings: configs/gp_viewer/server_v0.3.yaml.
 
 Usage: uv run grip-viewer [--config PATH]
 """
 
 import argparse
 import json
+import sys
 import mimetypes
 import shutil
 import traceback
@@ -28,12 +30,13 @@ import yaml
 
 from grip.apps.gp_viewer.annotate import cut_passage, save_reference
 from grip.apps.gp_viewer.datasets import DatasetIndex, resolve_inside
-from grip.apps.gp_viewer.runs import find_run_file, list_run_files, optimise_passage, run_file_positions
+from grip.apps.gp_viewer.runs import find_run_file, load_run_view, optimise_passage
+from grip.apps.gp_viewer.storage import StorageIndex
 from grip.core.guitar import load_guitar_setup
 from grip.core.paths import repo_root
 from grip.pipelines.optimiser_run import load_run_config
 
-DEFAULT_CONFIG = repo_root() / "configs/gp_viewer/server_v0.2.yaml"
+DEFAULT_CONFIG = repo_root() / "configs/gp_viewer/server_v0.3.yaml"
 PAGE_FOLDER = Path(__file__).resolve().parent / "page"
 PAGE_FILE = PAGE_FOLDER / "index.html"
 # The page's own scripts and styles (viewer.mjs, viewer.css…), served from directly inside PAGE_FOLDER
@@ -72,20 +75,57 @@ def load_config(config_path: Path) -> dict[str, Any]:
     return config
 
 
+def runs_folder_of(run_config_path: Path) -> Path:
+    """The folder the Run button saves runs to (the run config's output.runs_folder)."""
+    return repo_root() / load_run_config(run_config_path)["output"]["runs_folder"]
+
+
+def missing_folders(config: dict[str, Any]) -> list[str]:
+    """Folders the viewer needs that aren't there, each with what to do about it; empty = all fine.
+
+    The runs folder is never made here: in a worktree it must be the link into storage, not a new real folder.
+    """
+    problems = []
+    if not config["paths"]["storage_root"].is_dir():
+        problems.append(f"storage folder {config['paths']['storage_root']} is missing")
+    runs_folder = runs_folder_of(config["paths"]["optimiser_run_config"])
+    if not runs_folder.is_dir():
+        problems.append(f"runs folder {runs_folder} is missing: run ./setup_worktree.sh (it links it into storage)")
+    for name, dataset in config["datasets"].items():
+        if not dataset["root"].is_dir():
+            problems.append(f"dataset {name}: folder {dataset['root']} is missing")
+    return problems
+
+
 @dataclass(frozen=True, eq=False)  # eq=False: tables never compare
 class ViewerApp:
-    """What every request reads: the config and the dataset index, loaded once at startup (read only)."""
+    """What every request reads: the config, the dataset index and the storage index, made once at startup."""
     config: dict[str, Any]
     datasets: DatasetIndex
+    storage: StorageIndex
 
     @classmethod
-    def load(cls, config_path: Path) -> "ViewerApp":
-        config = load_config(config_path)
-        return cls(config, DatasetIndex.load(config["datasets"], config["gp_files"]["allowed_extensions"]))
+    def load(cls, config: dict[str, Any]) -> "ViewerApp":
+        """Read the datasets' manifests; the storage folder is walked on the first browser request."""
+        storage_root = config["paths"]["storage_root"]
+        dataset_roots = [dataset["root"] for dataset in config["datasets"].values()]
+        gp_extensions = config["gp_files"]["allowed_extensions"]
+        browser = config["browser"]
+        return cls(
+            config,
+            DatasetIndex.load(config["datasets"], [storage_root], gp_extensions),
+            StorageIndex(storage_root, gp_extensions, browser["hidden_name_endings"], dataset_roots,
+                         browser["index_max_age_seconds"]),
+        )
 
     @property
     def run_config_path(self) -> Path:
         return self.config["paths"]["optimiser_run_config"]
+
+    @property
+    def run_folders(self) -> list[Path]:
+        """Where run files may be opened from: the storage folder, and the runs folder (in case it lives elsewhere)."""
+        return [self.config["paths"]["storage_root"], runs_folder_of(self.run_config_path)]
 
 
 # ---- replies ----
@@ -117,7 +157,8 @@ def guess_content_type(path: Path) -> str:
 
 def page_config(app: ViewerApp, params: dict[str, str]) -> dict[str, Any]:
     """How alphaTab should read files, where the soundfont is, the Run button's default k, the neck's
-    fret count (the optimiser's guitar), the datasets the page can search, and where reference passages go."""
+    fret count (the optimiser's guitar), the datasets the page can search, the storage folder, and where
+    reference passages go."""
     alphatab = app.config["alphatab"]
     run_config = load_run_config(app.run_config_path)
     return {
@@ -125,6 +166,7 @@ def page_config(app: ViewerApp, params: dict[str, str]) -> dict[str, Any]:
         "k_best": run_config["search"]["k_best"],
         "highest_fret": load_guitar_setup(run_config["guitar_setup"]).highest_fret,
         "datasets": [{"name": name, "label": dataset["label"]} for name, dataset in app.config["datasets"].items()],
+        "storage_root": str(app.storage.root),
         "reference_set_folder": str(app.config["paths"]["reference_set_folder"]),
     }
 
@@ -163,27 +205,25 @@ def gp_file(app: ViewerApp, params: dict[str, str]) -> FileReply:
     return FileReply(path, {"X-GP-Path": quote(str(path))})
 
 
-def run_file_named(app: ViewerApp, params: dict[str, str]) -> Path:
-    """The run file the "name" parameter names (see runs.find_run_file)."""
-    path = find_run_file(app.config["paths"]["runs_folder"], params.get("name", ""))
+def storage_folder(app: ViewerApp, params: dict[str, str]) -> dict[str, Any]:
+    """One folder of the storage browser (see StorageIndex.list_folder). Params: "folder" (relative; "" = the root)."""
+    try:
+        return app.storage.list_folder(params.get("folder", ""))
+    except ValueError as error:
+        raise RouteError(HTTPStatus.NOT_FOUND, str(error)) from error
+
+
+def recent_files(app: ViewerApp, params: dict[str, str]) -> list[dict[str, Any]]:
+    """The newest openable files outside the dataset folders (see StorageIndex.recent)."""
+    return app.storage.recent(app.config["browser"]["recent_count"])
+
+
+def run_view(app: ViewerApp, params: dict[str, str]) -> dict[str, Any]:
+    """One run file, optimiser or existing tool, as the page shows it (see runs.load_run_view). Params: "path" (full)."""
+    path = find_run_file(params.get("path", ""), app.run_folders)
     if path is None:
-        raise RouteError(HTTPStatus.NOT_FOUND, "no run file with that name")
-    return path
-
-
-def run_list(app: ViewerApp, params: dict[str, str]) -> list[str]:
-    """The run files, newest first."""
-    return list_run_files(app.config["paths"]["runs_folder"])
-
-
-def run_file(app: ViewerApp, params: dict[str, str]) -> FileReply:
-    """One run file as it is on disk."""
-    return FileReply(run_file_named(app, params))
-
-
-def run_positions(app: ViewerApp, params: dict[str, str]) -> list[list[dict[str, int]]]:
-    """Every note's neck positions for one run file."""
-    return run_file_positions(run_file_named(app, params))
+        raise RouteError(HTTPStatus.NOT_FOUND, "no run file at that path in the storage folder")
+    return load_run_view(path)
 
 
 GET_ROUTES: dict[str, Callable[[ViewerApp, dict[str, str]], Any]] = {
@@ -191,17 +231,17 @@ GET_ROUTES: dict[str, Callable[[ViewerApp, dict[str, str]], Any]] = {
     "/api/tracks": track_search,
     "/api/songs": song_search,
     "/api/file": gp_file,
-    "/api/runs": run_list,
-    "/api/run": run_file,
-    "/api/positions": run_positions,
+    "/api/storage": storage_folder,
+    "/api/recent": recent_files,
+    "/api/run": run_view,
 }
 
 
 # ---- POST routes: (app, JSON body) → reply ----
 
 def optimise(app: ViewerApp, body: dict[str, Any]) -> dict[str, str]:
-    """Run the optimiser on a passage and save the run; answers the run file's name (see runs.optimise_passage)."""
-    return {"name": optimise_passage(body, app.datasets, app.run_config_path)}
+    """Run the optimiser on a passage and save the run; answers the run file's full path (see runs.optimise_passage)."""
+    return {"path": str(optimise_passage(body, app.datasets, app.run_config_path))}
 
 
 def passage_for_annotating(app: ViewerApp, body: dict[str, Any]) -> dict[str, Any]:
@@ -325,8 +365,11 @@ def main() -> None:
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     args = parser.parse_args()
 
-    # Load the config and the dataset index once; every request reuses them
-    app = ViewerApp.load(args.config)
+    # Refuse to start without the folders it needs; then load the indexes once, every request reuses them
+    config = load_config(args.config)
+    if problems := missing_folders(config):
+        sys.exit("GP viewer can't start:\n  " + "\n  ".join(problems))
+    app = ViewerApp.load(config)
     host, port = app.config["server"]["host"], app.config["server"]["port"]
     server = ThreadingHTTPServer((host, port), partial(ViewerHandler, app=app))
     print(f"GP viewer: {len(app.datasets.track_table)} tracks in {len(app.datasets.song_table)} songs loaded, "

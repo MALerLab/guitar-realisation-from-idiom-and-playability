@@ -120,20 +120,24 @@ class DatasetIndex:
     Attributes:
         track_table: output of load_track_table.
         song_table: output of load_song_table.
-        roots: dataset name → root folder (resolved); GP files open only from under one of them.
+        roots: dataset name → root folder (resolved); short paths are looked up under these.
+        open_only_roots: more folders whose GP files open by full path (e.g. the storage root), never searched.
         allowed_extensions: GP file extensions that open.
     """
     track_table: pd.DataFrame
     song_table: pd.DataFrame
     roots: dict[str, Path]
+    open_only_roots: tuple[Path, ...]
     allowed_extensions: tuple[str, ...]
 
     @classmethod
-    def load(cls, datasets: dict[str, dict[str, Any]], allowed_extensions: list[str]) -> "DatasetIndex":
+    def load(cls, datasets: dict[str, dict[str, Any]], open_only_roots: list[Path],
+             allowed_extensions: list[str]) -> "DatasetIndex":
         """Read every dataset's manifests (see load_track_table)."""
         track_table = load_track_table(datasets)
         roots = {name: dataset["root"] for name, dataset in datasets.items()}
-        return cls(track_table, load_song_table(track_table), roots, tuple(allowed_extensions))
+        return cls(track_table, load_song_table(track_table), roots,
+                   tuple(root.resolve() for root in open_only_roots), tuple(allowed_extensions))
 
     def search_tracks(self, filters: dict[str, Any], page: int, page_size: int) -> dict[str, Any]:
         """One page of matching tracks (see filter_tracks and one_page).
@@ -160,8 +164,8 @@ class DatasetIndex:
         return one_page(songs, page, page_size, list(self.song_table.columns))
 
     def find_gp_file(self, requested: str, searched: list[str]) -> Path:
-        """The GP file a path names: a full path inside any dataset root, or a short path under exactly
-        one of the searched datasets' roots.
+        """The GP file a path names: a full path inside any dataset root or open-only root, or a short
+        path under exactly one of the searched datasets' roots.
 
         Args:
             requested: A full path (absolute or ~) or a path relative to a dataset root.
@@ -170,17 +174,21 @@ class DatasetIndex:
         Raises:
             ValueError: with a message for the page, if no file or more than one matches.
         """
-        requested_path = Path(requested).expanduser()
-        names = list(self.roots) if requested_path.is_absolute() else [name for name in searched if name in self.roots]
+        if Path(requested).expanduser().is_absolute():
+            for root in (*self.roots.values(), *self.open_only_roots):
+                path = resolve_inside(root, requested)
+                if path is not None and path.suffix.lower() in self.allowed_extensions:
+                    return path
+            raise ValueError("no GP file at that path under any dataset or storage folder")
+        names = [name for name in searched if name in self.roots]
         hits = {name: path for name in names if (path := resolve_inside(self.roots[name], requested)) is not None}
         hits = {name: path for name, path in hits.items() if path.suffix.lower() in self.allowed_extensions}
         if not hits:
-            where = "any dataset folder" if requested_path.is_absolute() else f"the ticked datasets ({', '.join(names) or 'none'})"
-            raise ValueError(f"no GP file at that path under {where}")
+            raise ValueError(f"no GP file at that path under the ticked datasets ({', '.join(names) or 'none'})")
         if len(hits) > 1:
             raise ValueError(f"that path exists in several ticked datasets ({', '.join(hits)}); untick all but one, or type the full path")
         return next(iter(hits.values()))
 
     def dataset_of(self, gp_path: Path) -> str:
-        """The name of the dataset whose root holds `gp_path` (the caller already found it with find_gp_file)."""
-        return next(name for name, root in self.roots.items() if gp_path.is_relative_to(root))
+        """The name of the dataset whose root holds `gp_path`, or "storage" for a file outside every dataset."""
+        return next((name for name, root in self.roots.items() if gp_path.is_relative_to(root)), "storage")

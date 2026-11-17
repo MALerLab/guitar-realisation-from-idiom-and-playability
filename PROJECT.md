@@ -22,8 +22,8 @@
     (manifest builder) · `existing_tools/` (other people's systems, run for comparison: Tablator, Bontempi)
     · `catalogue/` (idiom catalogue builder: counts runs into the counts table, draws the membership line)
   - `pipelines/` = run wiring shared by entrypoints (config → passage → search → record)
-  - entrypoints: `cli/` (commands: argparse + printing only) · `apps/gp_viewer/` (dev tool: browse GP
-    files, run the optimiser and annotate passages in a browser)
+  - entrypoints: `cli/` (commands: argparse + printing only) · `apps/gp_viewer/` (dev tool: browse storage + GP
+    files, run the optimiser and annotate passages in a browser; spec: `docs/viewer_spec.md`, local)
   - Import rules: the library never imports `cli/`, `apps/` or `pipelines/`; enforced by `tests/test_import_rules.py`.
 - `configs/<subpackage>/` mirrors `src/grip/<subpackage>/` — no hardcoded parameters in `src/`.
   `configs/experiments/` is added when the first experiment exists.

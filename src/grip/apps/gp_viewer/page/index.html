@@ -3,83 +3,158 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>GRIP GP viewer</title>
-<!-- Styles: viewer.css · script: viewer.mjs (imports annotate.mjs, file_picker.mjs, fretboard.mjs, track_mixer.mjs, choices_to_tex.mjs) -->
+<title>GRIP viewer</title>
+<!-- Styles: viewer.css · script: viewer.mjs (imports annotate, file_picker, storage_browser, transport, fretboard, track_mixer, choices_to_tex) -->
 <link rel="stylesheet" href="/viewer.css">
 </head>
 <body>
-<aside id="sidebar">
-  <!-- What the list shows: one row per song (opens its first guitar track) or per track -->
-  <div class="controls" id="list-mode">
-    List
-    <label><input type="radio" name="list-mode" value="songs"> songs</label>
-    <label><input type="radio" name="list-mode" value="tracks" checked> tracks</label>
-  </div>
-  <div class="controls">
-    <select id="run-select"><option value="">Optimiser runs…</option></select>
-    <button id="runs-refresh" title="Reload the run list">Reload</button>
-  </div>
-  <form id="path-form">
-    <input type="text" id="path-input" placeholder="GP path: full, or under a ticked dataset">
-    <button type="submit">Open</button>
-  </form>
-  <div class="controls">
-    <input type="text" id="search-input" placeholder="Search artist, title, track">
-  </div>
-  <!-- One box per dataset (filled from the server config), then the vocal/melody filter -->
-  <div class="controls" id="filter-boxes">
-    <div id="dataset-boxes"></div>
-    <label class="vocal-box"><input type="checkbox" id="vocal-only"> vocal/melody tracks only</label>
-  </div>
-  <div id="result-count"></div>
-  <!-- Page controls (file_picker.mjs) above and below the list -->
-  <div class="page-nav" id="page-nav-top"></div>
-  <ul id="browse-list"></ul>
-  <div class="page-nav" id="page-nav-bottom"></div>
-</aside>
-<main id="main">
-  <div id="toolbar">
-    <button id="sidebar-toggle" title="Hide / show the file panel">☰</button>
+<!-- Icons, drawn once and reused by <use href="#icon-…"> -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="icon-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="icon-start" viewBox="0 0 24 24"><path d="M6 5v14M19 5 9 12l10 7z" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+  <symbol id="icon-bar-back" viewBox="0 0 24 24"><path d="M12 5 4 12l8 7zM20 5l-8 7 8 7z" fill="currentColor"/></symbol>
+  <symbol id="icon-bar-forward" viewBox="0 0 24 24"><path d="m12 5 8 7-8 7zM4 5l8 7-8 7z" fill="currentColor"/></symbol>
+  <symbol id="icon-play" viewBox="0 0 24 24"><path d="M7 4.5v15l13-7.5z" fill="currentColor"/></symbol>
+  <symbol id="icon-pause" viewBox="0 0 24 24"><path d="M6 4h4v16H6zM14 4h4v16h-4z" fill="currentColor"/></symbol>
+  <symbol id="icon-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor"/></symbol>
+  <symbol id="icon-loop" viewBox="0 0 24 24"><path d="M17 2l3 3-3 3M4 11V9a4 4 0 0 1 4-4h12M7 22l-3-3 3-3M20 13v2a4 4 0 0 1-4 4H4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="icon-fretboard" viewBox="0 0 24 24"><path d="M2 7h20M2 12h20M2 17h20M7 5v14M13 5v14M19 5v14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="icon-mixer" viewBox="0 0 24 24"><path d="M6 3v18M12 3v18M18 3v18" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><rect x="3.5" y="13" width="5" height="3" rx="1" fill="currentColor"/><rect x="9.5" y="6" width="5" height="3" rx="1" fill="currentColor"/><rect x="15.5" y="10" width="5" height="3" rx="1" fill="currentColor"/></symbol>
+  <symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="icon-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>
+
+<!-- Top bar: what is open, what is shown, and the Run / Edit / Save actions -->
+<header id="topbar">
+  <button id="sidebar-toggle" class="icon-button" title="Hide / show the files"><svg><use href="#icon-menu"/></svg></button>
+  <div id="title-block">
     <span id="song-title">No file open</span>
-    <label>Track <select id="track-select" disabled></select></label>
-    <span id="tuning" title="Open strings of what is shown, lowest string first"></span>
-    <label>Realisation <select id="realisation-select" disabled></select></label>
-    <button id="play-pause" disabled>Play</button>
-    <button id="stop" disabled>Stop</button>
-    <button id="fretboard-toggle" title="Show / hide the fretboard">Fretboard</button>
-    <span id="status"></span>
+    <span id="subtitle">
+      <select id="track-select" disabled title="Track (song view)"></select>
+      <span id="tuning" title="Open strings of what is shown, lowest string first"></span>
+    </span>
   </div>
-  <div id="run-bar">
-    <label>Bars <input type="number" id="first-bar" min="1"></label>
-    <label>– <input type="number" id="last-bar" min="1"></label>
-    <label>Voice <input type="number" id="voice" min="0" value="0"></label>
-    <label title="Retune every string by N semitones, pitches kept (e.g. −1: a song in Eb saved as E standard)">Tuning shift <input type="number" id="tuning-shift" value="0"></label>
-    <label title="Empty = the file's tempo">Tempo <input type="number" id="tempo" min="1" placeholder="file"></label>
-    <label title="How many realisations">k <input type="number" id="k-best" min="1"></label>
-    <button id="run-button" disabled>Run optimiser</button>
-    <span class="spacer"></span>
-    <button id="edit-button" disabled>Edit</button>
-    <button id="save-button" disabled>Save</button>
-  </div>
-  <div id="viewport"><div id="score"></div><div id="selection-boxes"></div></div>
-  <!-- Fretboard panel (fretboard.mjs), hidden until the Fretboard button opens it -->
-  <div id="fretboard-panel" hidden>
-    <div id="fretboard-settings" title="Events (a note, or a chord in the song view) shown faint around what is playing; 0 = off">
-      <label>previous <input type="number" id="fretboard-previous" min="0" value="4"></label>
-      <label>next <input type="number" id="fretboard-next" min="0" value="4"></label>
+  <select id="realisation-select" disabled title="Realisation of the open run"></select>
+  <span id="status"></span>
+  <div class="popover-anchor">
+    <button id="run-toggle" class="primary" disabled title="Run the optimiser on some bars">Run <svg class="chevron"><use href="#icon-chevron"/></svg></button>
+    <!-- Run settings: drag over bars in the tab to fill the bar boxes -->
+    <div id="run-popover" class="popover" hidden>
+      <div class="popover-grid">
+        <label>First bar <input type="number" id="first-bar" min="1"></label>
+        <label>Last bar <input type="number" id="last-bar" min="1"></label>
+        <label>Voice <input type="number" id="voice" min="0" value="0"></label>
+        <label title="Retune every string by N semitones, pitches kept (e.g. −1: a song in Eb saved as E standard)">Tuning shift <input type="number" id="tuning-shift" value="0"></label>
+        <label title="Empty = the file's tempo">Tempo <input type="number" id="tempo" min="1" placeholder="file"></label>
+        <label title="How many realisations">Realisations (k) <input type="number" id="k-best" min="1"></label>
+      </div>
+      <p class="hint">Tip: drag over bars in the tab to fill the bar boxes.</p>
+      <button id="run-button" class="primary wide" disabled>Run optimiser</button>
     </div>
-    <div id="fretboard"></div>
   </div>
-</main>
-<!-- Right-hand column: the note panel (annotate.mjs), and the open song's mixer (track_mixer.mjs) at the bottom -->
-<aside id="right-column">
-  <div id="note-panel"></div>
-  <section id="mixer-panel" hidden>
-    <h2>Mixer</h2>
-    <p class="hint">Sound settings apply to the song view.</p>
-    <div id="mixer-rows"></div>
-  </section>
-</aside>
+  <button id="edit-button" disabled title="Annotate: start from what is shown">Edit</button>
+  <button id="save-button" disabled title="Save the annotation as a reference passage">Save</button>
+</header>
+
+<div id="workspace">
+  <!-- Sidebar: path box, then two tabs: the storage browser (storage_browser.mjs) and the dataset search (file_picker.mjs) -->
+  <aside id="sidebar">
+    <form id="path-form">
+      <input type="text" id="path-input" placeholder="GP path or file name" spellcheck="false">
+      <button type="submit">Open</button>
+    </form>
+    <div class="tabs" role="tablist">
+      <button role="tab" data-tab="storage" class="tab">Files</button>
+      <button role="tab" data-tab="datasets" class="tab">Datasets</button>
+    </div>
+
+    <section id="storage-tab" class="tab-panel">
+      <details id="recent-section" open>
+        <summary>Recent <button id="storage-refresh" class="icon-button small" title="Look again"><svg><use href="#icon-refresh"/></svg></button></summary>
+        <ul id="recent-list" class="file-list"></ul>
+      </details>
+      <!-- Drag to share the height between Recent and the storage folders -->
+      <div id="recent-divider" role="separator" aria-orientation="horizontal" title="Drag to resize"></div>
+      <div id="storage-section">
+        <nav id="storage-crumbs"></nav>
+        <ul id="storage-list" class="file-list"></ul>
+      </div>
+    </section>
+
+    <section id="datasets-tab" class="tab-panel">
+      <div class="controls" id="list-mode">
+        <label><input type="radio" name="list-mode" value="songs"> songs</label>
+        <label><input type="radio" name="list-mode" value="tracks" checked> tracks</label>
+      </div>
+      <div class="controls">
+        <input type="search" id="search-input" placeholder="Search artist, title, track">
+      </div>
+      <!-- One box per dataset (filled from the server config), then the vocal/melody filter -->
+      <div class="controls" id="filter-boxes">
+        <div id="dataset-boxes"></div>
+        <label class="vocal-box"><input type="checkbox" id="vocal-only"> vocal / melody tracks only</label>
+      </div>
+      <div id="result-count"></div>
+      <div class="page-nav" id="page-nav-top"></div>
+      <ul id="browse-list" class="file-list"></ul>
+      <div class="page-nav" id="page-nav-bottom"></div>
+    </section>
+  </aside>
+
+  <main id="main">
+    <div id="viewport">
+      <div id="empty-state">
+        <strong>Nothing open yet</strong>
+        <span>Pick a file on the left: recent runs, the storage folders, or the datasets.</span>
+      </div>
+      <div id="score"></div><div id="selection-boxes"></div>
+    </div>
+    <!-- Fretboard drawer (fretboard.mjs), opened from the transport bar -->
+    <div id="fretboard-panel" class="drawer" hidden>
+      <div id="fretboard-settings" title="Events (a note, or a chord in the song view) shown faint around what is playing; 0 = off">
+        <label>previous <input type="number" id="fretboard-previous" min="0" value="4"></label>
+        <label>next <input type="number" id="fretboard-next" min="0" value="4"></label>
+      </div>
+      <div id="fretboard"></div>
+    </div>
+  </main>
+
+  <!-- Right-hand column: the note panel (annotate.mjs) while a passage is shown, the mixer drawer (track_mixer.mjs) when opened -->
+  <aside id="right-column">
+    <div id="note-panel"></div>
+    <section id="mixer-drawer">
+      <h2>Mixer</h2>
+      <p class="hint" id="mixer-empty">Open a song to mix its tracks.</p>
+      <div id="mixer-panel" hidden>
+        <p class="hint">Sound settings apply to the song view.</p>
+        <div id="mixer-rows"></div>
+      </div>
+    </section>
+  </aside>
+</div>
+
+<!-- Transport bar (transport.mjs): playback, position, loop, speed, drawers -->
+<footer id="transport">
+  <div class="transport-buttons">
+    <button id="to-start" class="icon-button" disabled title="Back to the start (Home)"><svg><use href="#icon-start"/></svg></button>
+    <button id="bar-back" class="icon-button" disabled title="Bar back ( [ )"><svg><use href="#icon-bar-back"/></svg></button>
+    <button id="play-pause" class="icon-button play" disabled title="Play / pause (Space)"><svg><use href="#icon-play"/></svg></button>
+    <button id="stop" class="icon-button" disabled title="Stop"><svg><use href="#icon-stop"/></svg></button>
+    <button id="bar-forward" class="icon-button" disabled title="Bar forward ( ] )"><svg><use href="#icon-bar-forward"/></svg></button>
+  </div>
+  <input type="range" id="scrub" min="0" max="1" value="0" step="1" disabled title="Drag to move the playback position">
+  <span id="position-label">bar – / –</span>
+  <span id="time-label">0:00 / 0:00</span>
+  <div class="transport-buttons">
+    <button id="loop-toggle" class="icon-button" aria-pressed="false" title="Loop (the dragged bars, or everything)"><svg><use href="#icon-loop"/></svg></button>
+    <select id="speed-select" title="Playback speed">
+      <option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="0.75">0.75×</option>
+      <option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option>
+    </select>
+    <button id="fretboard-toggle" class="icon-button" aria-pressed="false" title="Fretboard"><svg><use href="#icon-fretboard"/></svg></button>
+    <button id="mixer-toggle" class="icon-button" aria-pressed="false" title="Mixer"><svg><use href="#icon-mixer"/></svg></button>
+  </div>
+</footer>
 
 <dialog id="save-dialog">
   <form method="dialog" id="save-form">
@@ -98,7 +173,7 @@
     <div id="save-error"></div>
     <menu>
       <button type="button" id="save-cancel">Cancel</button>
-      <button type="submit" id="save-confirm">Save</button>
+      <button type="submit" id="save-confirm" class="primary">Save</button>
     </menu>
   </form>
 </dialog>

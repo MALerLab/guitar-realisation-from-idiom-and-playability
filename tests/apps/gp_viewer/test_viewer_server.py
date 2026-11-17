@@ -1,10 +1,11 @@
 """The gp_viewer server's contract with its page, checked over real HTTP.
 
-Starts `grip-viewer` on a throwaway config (one toy dataset = alphaTab's own gp5 test files, a temp runs
+Starts `grip-viewer` on a throwaway config (one toy dataset = alphaTab's own gp5 test files, a toy storage
 folder, a stand-in alphaTab folder) and calls every route the page uses. Nothing is written to storage.
 """
 
 import json
+import shutil
 import socket
 import subprocess
 import sys
@@ -19,6 +20,7 @@ import pandas as pd
 import pytest
 import yaml
 
+from grip.apps.gp_viewer.server import missing_folders
 from grip.core.paths import repo_root
 
 REPO_ROOT = repo_root()
@@ -57,13 +59,48 @@ def write_toy_manifests(folder: Path) -> tuple[Path, Path]:
     return tracks_path, songs_path
 
 
-def write_toy_run(runs_folder: Path, name: str) -> Path:
-    """A minimal run file: a passage of two notes, the second a null symbol (chord)."""
-    run = {"passage": {"guitar": {"tuning": [64, 59, 55, 50, 45, 40], "highest_fret": 24, "scale_length_mm": 648.0},
-                       "notes": [{"pitch": 64}, {"pitch": None}]}}
-    path = runs_folder / name
-    path.write_text(json.dumps(run))
+TOY_PASSAGE_RECORD = {"guitar": {"tuning": [64, 59, 55, 50, 45, 40], "highest_fret": 24, "scale_length_mm": 648.0},
+                      "notes": [{"pitch": 64}, {"pitch": None}]}
+
+
+def write_json(path: Path, content: dict[str, Any]) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(content))
     return path
+
+
+def write_toy_optimiser_run(path: Path) -> Path:
+    """A minimal optimiser run: a passage of two notes (the second a chord, i.e. a null symbol), one realisation."""
+    return write_json(path, {
+        "format": {"name": "grip_optimiser_run", "version": "1.0"}, "version": "9.9", "source": {"midi": "toy.mid"},
+        "passage": TOY_PASSAGE_RECORD, "realisations": [{"rank": 1, "total_cost": 1.5, "choices": []}],
+    })
+
+
+def write_toy_existing_tool_run(path: Path) -> Path:
+    """A minimal existing-tool run on the same passage: one fingering."""
+    notes = [{"passage_index": 0, "string": 1, "fret": 0, "finger": 0, "hand": None},
+             {"passage_index": 1, "string": None, "fret": None, "finger": None, "hand": None}]
+    return write_json(path, {
+        "format": {"name": "grip_existing_tool_run", "version": "0.1"}, "tool": "toytool", "source": {"midi": "toy.mid"},
+        "passage": TOY_PASSAGE_RECORD, "fingerings": [{"rank": 1, "cost": 7.0, "notes": notes}],
+    })
+
+
+def write_toy_storage(storage: Path) -> None:
+    """A toy storage folder: two optimiser runs (older, newer), an existing-tool run, a GP file in an audit
+    folder, and things the browser must hide (a text file, a non-run JSON, a DadaGP re-save, an empty folder)."""
+    write_toy_optimiser_run(storage / "optimiser_runs/v9/older_run.json")
+    time.sleep(0.05)  # different modification times → a fixed newest-first order
+    write_toy_optimiser_run(storage / "optimiser_runs/v9/newer_run.json")
+    write_toy_existing_tool_run(storage / "existing_tool_runs/toytool_run.json")
+    audit = storage / "audit/case"
+    audit.mkdir(parents=True)
+    shutil.copy(TOY_DATASET_ROOT / TOY_GP_FILE, audit / "audit_copy.gp5")
+    shutil.copy(TOY_DATASET_ROOT / TOY_GP_FILE, audit / "song.gp3.gp2tokens2gp.gp5")
+    (audit / "notes.txt").write_text("not openable")
+    write_json(storage / "survey/package.json", {"name": "not a run"})
+    (storage / "empty_folder").mkdir()
 
 
 @pytest.fixture(scope="module")
@@ -71,12 +108,8 @@ def viewer(tmp_path_factory) -> dict[str, Any]:
     """A running viewer on a toy config; yields its base URL and folders, stops it afterwards (SIGINT)."""
     folder = tmp_path_factory.mktemp("viewer")
     tracks_path, songs_path = write_toy_manifests(folder)
-    runs_folder = folder / "runs"
-    runs_folder.mkdir()
-    write_toy_run(runs_folder, "older_run.json")
-    time.sleep(0.05)  # different modification times → a fixed newest-first order
-    write_toy_run(runs_folder, "newer_run.json")
-    (runs_folder / "notes.txt").write_text("not a run")
+    storage = folder / "storage"
+    write_toy_storage(storage)
     alphatab_dist = folder / "alphatab_dist"
     (alphatab_dist / "soundfont").mkdir(parents=True)
     (alphatab_dist / "alphaTab.mjs").write_text("export const stub = 1;")
@@ -86,10 +119,11 @@ def viewer(tmp_path_factory) -> dict[str, Any]:
         "server": {"host": "127.0.0.1", "port": port},
         "datasets": {"toy": {"label": "Toy", "root": str(TOY_DATASET_ROOT), "tracks_manifest": str(tracks_path),
                              "songs_manifest": str(songs_path)}},
-        "paths": {"runs_folder": str(runs_folder), "optimiser_run_config": str(RUN_CONFIG),
+        "paths": {"storage_root": str(storage), "optimiser_run_config": str(RUN_CONFIG),
                   "reference_set_folder": str(folder / "reference_set"), "alphatab_dist": str(alphatab_dist)},
         "alphatab": {"text_encoding": "windows-1252", "soundfont": "soundfont/sonivox.sf2"},
         "browse_list": {"page_size": 2},
+        "browser": {"index_max_age_seconds": 0, "recent_count": 10, "hidden_name_endings": [".gp2tokens2gp.gp5"]},
         "gp_files": {"allowed_extensions": [".gp3", ".gp4", ".gp5", ".gpx", ".gp"]},
     }
     config_path = folder / "viewer.yaml"
@@ -107,7 +141,7 @@ def viewer(tmp_path_factory) -> dict[str, Any]:
                 process.kill()
                 pytest.fail(f"viewer didn't start:\n{process.stdout.read()}")
             time.sleep(0.1)
-    yield {"url": f"http://127.0.0.1:{port}", "runs_folder": runs_folder, "folder": folder}
+    yield {"url": f"http://127.0.0.1:{port}", "storage": storage.resolve(), "folder": folder}
     process.send_signal(2)  # SIGINT, the server's own Ctrl-C path
     process.wait(timeout=10)
 
@@ -207,25 +241,76 @@ def test_gp_file_refusals_say_why_in_the_status_line(viewer):
     assert get(viewer, "/api/file", path=TOY_GP_FILE, datasets="")[0] == 404
 
 
-# ---- optimiser runs ----
+# ---- storage browser ----
 
-def test_run_list_is_newest_first_and_json_only(viewer):
-    status, _, body, _ = get(viewer, "/api/runs")
-    assert status == 200 and json.loads(body) == ["newer_run.json", "older_run.json"]
-
-
-def test_run_file_and_its_note_positions(viewer):
-    status, _, body, _ = get(viewer, "/api/run", name="older_run.json")
-    assert status == 200 and json.loads(body)["passage"]["notes"][0]["pitch"] == 64
-    positions = json.loads(get(viewer, "/api/positions", name="older_run.json")[2])
-    assert len(positions) == 2 and positions[1] == []
-    assert {"string": 1, "fret": 0} in positions[0]
+def test_storage_root_lists_only_folders_with_something_to_open(viewer):
+    status, _, body, _ = get(viewer, "/api/storage", folder="")
+    listing = json.loads(body)
+    assert status == 200 and listing["folders"] == ["audit", "existing_tool_runs", "optimiser_runs"]
+    assert listing["files"] == [] and listing["root"] == str(viewer["storage"])
 
 
-def test_run_files_outside_the_runs_folder_are_refused(viewer):
-    assert get(viewer, "/api/run", name="notes.txt")[0] == 404
-    assert get(viewer, "/api/run", name="../viewer.yaml")[0] == 404
-    assert get(viewer, "/api/positions", name="missing.json")[0] == 404
+def test_storage_folder_lists_runs_newest_first(viewer):
+    listing = json.loads(get(viewer, "/api/storage", folder="optimiser_runs/v9")[2])
+    assert [file["name"] for file in listing["files"]] == ["newer_run.json", "older_run.json"]
+    assert {file["kind"] for file in listing["files"]} == {"optimiser_run"}
+    assert listing["files"][0]["path"] == str(viewer["storage"] / "optimiser_runs/v9/newer_run.json")
+
+
+def test_storage_folder_shows_gp_files_but_hides_the_rest(viewer):
+    listing = json.loads(get(viewer, "/api/storage", folder="audit/case")[2])
+    assert [(file["name"], file["kind"]) for file in listing["files"]] == [("audit_copy.gp5", "gp")]
+
+
+def test_storage_refuses_folders_outside_or_empty(viewer):
+    assert get(viewer, "/api/storage", folder="../")[0] == 404
+    assert get(viewer, "/api/storage", folder="empty_folder")[0] == 404
+    assert get(viewer, "/api/storage", folder="survey")[0] == 404
+
+
+def test_recent_lists_every_kind_newest_first(viewer):
+    recent = json.loads(get(viewer, "/api/recent")[2])
+    names = [file["name"] for file in recent]
+    assert set(names) == {"older_run.json", "newer_run.json", "toytool_run.json", "audit_copy.gp5"}
+    assert names.index("newer_run.json") < names.index("older_run.json")
+
+
+def test_a_new_file_shows_up_without_a_restart(viewer):
+    write_toy_optimiser_run(viewer["storage"] / "optimiser_runs/v9/brand_new_run.json")
+    assert json.loads(get(viewer, "/api/recent")[2])[0]["name"] == "brand_new_run.json"
+    (viewer["storage"] / "optimiser_runs/v9/brand_new_run.json").unlink()
+
+
+def test_gp_file_anywhere_in_storage_opens_by_full_path(viewer):
+    path = viewer["storage"] / "audit/case/audit_copy.gp5"
+    status, headers, body, _ = get(viewer, "/api/file", path=str(path), datasets="")
+    assert status == 200 and body == path.read_bytes()
+
+
+# ---- runs ----
+
+def test_optimiser_run_opens_with_its_note_positions(viewer):
+    status, _, body, _ = get(viewer, "/api/run", path=str(viewer["storage"] / "optimiser_runs/v9/older_run.json"))
+    run = json.loads(body)
+    assert status == 200 and run["kind"] == "optimiser_run" and run["label"] == "GRIP v9.9"
+    assert run["realisations"][0]["total_cost"] == 1.5
+    assert len(run["positions"]) == 2 and run["positions"][1] == [] and {"string": 1, "fret": 0} in run["positions"][0]
+
+
+def test_existing_tool_run_opens_as_realisations(viewer):
+    run = json.loads(get(viewer, "/api/run", path=str(viewer["storage"] / "existing_tool_runs/toytool_run.json"))[2])
+    assert run["kind"] == "existing_tool_run" and run["label"] == "toytool"
+    realisation = run["realisations"][0]
+    assert (realisation["rank"], realisation["total_cost"]) == (1, 7.0)
+    assert realisation["choices"][0] == {"passage_index": 0, "string": 1, "fret": 0, "finger": 0, "hand": None,
+                                         "stroke": None, "stroke_letter": None}
+
+
+def test_run_files_outside_storage_or_not_runs_are_refused(viewer):
+    assert get(viewer, "/api/run", path=str(viewer["folder"] / "viewer.yaml"))[0] == 404
+    assert get(viewer, "/api/run", path="optimiser_runs/v9/older_run.json")[0] == 404  # full paths only
+    status, _, _, reason = get(viewer, "/api/run", path=str(viewer["storage"] / "survey/package.json"))
+    assert status == 400 and "not a run file" in reason
 
 
 # ---- annotate mode ----
@@ -256,3 +341,12 @@ def test_reference_dry_run_suggests_a_name_and_writes_nothing(viewer):
 
 def test_unknown_post_route_is_404(viewer):
     assert post(viewer, "/api/nothing", {})[0] == 404
+
+
+# ---- startup ----
+
+def test_missing_folders_are_reported_before_starting(tmp_path):
+    config = {"paths": {"storage_root": tmp_path / "no_storage", "optimiser_run_config": RUN_CONFIG},
+              "datasets": {"toy": {"root": tmp_path / "no_dataset"}}}
+    problems = missing_folders(config)
+    assert len(problems) == 2 and "no_storage" in problems[0] and "no_dataset" in problems[1]

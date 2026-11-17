@@ -159,9 +159,11 @@ let timeline = null;
 export function setupFretboard(viewer) {
   ({ element, api, state, pageConfig, shownPassage, currentBeatMap, remember, recall } = viewer);
   element('fretboard-panel').hidden = recall('fretboardShown', '0') !== '1';
+  element('fretboard-toggle').setAttribute('aria-pressed', String(!element('fretboard-panel').hidden));
   element('fretboard-toggle').onclick = () => {
     const opening = element('fretboard-panel').hidden;
     element('fretboard-panel').hidden = !opening;
+    element('fretboard-toggle').setAttribute('aria-pressed', String(opening));
     remember('fretboardShown', opening ? '1' : '0');
     updateFretboard();
   };

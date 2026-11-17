@@ -128,7 +128,7 @@ function pitchText(pitch) {
 /** Fill the panel for what is shown and selected. */
 function updatePanel() {
   const shown = shownPassage();
-  if (!state.view) return showPanelHint('Open a GP file (left) or an optimiser run.');
+  if (!state.view) return showPanelHint('Open a file from the sidebar.');
   if (state.view.kind === 'song') {
     return showPanelHint('Drag over bars to fill the bar boxes, then Run optimiser (search) or Edit (annotate, starting from this tab).');
   }
