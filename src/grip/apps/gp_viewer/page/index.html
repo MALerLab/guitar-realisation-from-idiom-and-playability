@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GRIP viewer</title>
-<!-- Styles: viewer.css · script: viewer.mjs (imports annotate, catalogue_view, file_picker, storage_browser, transport, fretboard, track_mixer, choices_to_tex) -->
+<!-- Styles: viewer.css · script: viewer.mjs (imports annotate, catalogue_view, file_picker, flags, storage_browser, transport, fretboard, track_mixer, choices_to_tex) -->
 <link rel="stylesheet" href="/viewer.css">
 </head>
 <body>
@@ -60,6 +60,7 @@
   </div>
   <button id="edit-button" disabled title="Annotate: start from what is shown">Edit</button>
   <button id="save-button" disabled title="Save the annotation as a reference passage">Save</button>
+  <button id="flag-button" class="flag" disabled title="Flag this track as junk (corpus clean-up)">⚑ Junk</button>
 </header>
 
 <div id="workspace">
@@ -170,6 +171,7 @@
           <span id="occurrence-label">Pick a layout to play one of its occurrences</span>
           <button id="occurrence-next" type="button" class="icon-button" disabled title="Next occurrence">▶</button>
           <button id="occurrence-open-song" type="button" disabled title="Open the whole song at this phrase (song view)">Open song</button>
+          <button id="occurrence-flag" type="button" class="flag" disabled title="Flag this occurrence's track as junk (corpus clean-up)">⚑ Junk</button>
         </div>
         <!-- Move the occurrence's shape: along the neck, or across strings with the notes' steps kept -->
         <div id="shape-editor">
@@ -238,6 +240,24 @@
     <menu>
       <button type="button" id="save-cancel">Cancel</button>
       <button type="submit" id="save-confirm" class="primary">Save</button>
+    </menu>
+  </form>
+</dialog>
+
+<!-- Junk flag box (flags.mjs): one track (or every track of the song), with an optional note -->
+<dialog id="flag-dialog">
+  <form method="dialog" id="flag-form">
+    <strong>Flag as junk</strong>
+    <div class="folder" id="flag-target"></div>
+    <label for="flag-note">Note (optional)</label>
+    <input type="text" id="flag-note" maxlength="200" placeholder="e.g. bars 30–40 make no sense" spellcheck="false">
+    <label id="flag-all-label"><input type="checkbox" id="flag-all"> every track of this song</label>
+    <div id="flag-error"></div>
+    <menu>
+      <button type="button" id="flag-remove">Remove flag</button>
+      <span class="spacer"></span>
+      <button type="button" id="flag-cancel">Cancel</button>
+      <button type="submit" id="flag-confirm" class="primary">Flag as junk</button>
     </menu>
   </form>
 </dialog>

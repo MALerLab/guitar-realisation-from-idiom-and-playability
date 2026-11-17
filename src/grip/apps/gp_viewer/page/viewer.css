@@ -319,3 +319,18 @@ body.explorer-closed #catalogue-explorer, body.explorer-closed #catalogue-explor
 .occurrence-open { margin-left: auto; padding: 0 6px; font-size: 11px; color: var(--muted); }
 .badge.catalogue { background: #e3f6e8; color: #1f7a3a; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .badge.catalogue { background: #183524; color: #6fd08f; } }
+
+/* ---- Junk flags (flags.mjs) ---- */
+button.flag.flagged { background: var(--warn); border-color: var(--warn); color: #fff; }
+.badge.junk { background: #fde2e0; color: var(--warn); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .badge.junk { background: #4a1f1c; color: #ff8a80; } }
+#flag-dialog { width: 440px; }
+#flag-dialog label { display: block; margin: 10px 0 2px; color: var(--muted); }
+#flag-dialog input[type=text] { width: 100%; }
+#flag-dialog .folder { color: var(--muted); font-size: 12px; word-break: break-all; margin-top: 4px; }
+#flag-all-label[hidden] { display: none; }
+#flag-error { color: var(--warn); margin-top: 6px; }
+#flag-dialog menu { display: flex; gap: 8px; padding: 0; margin: 14px 0 0; }
+#flag-dialog menu .spacer { flex: 1; }
+.occurrence-song .badge.junk { margin-left: 6px; }
+.junk-line { color: var(--warn); font-size: 12px; font-weight: 600; }

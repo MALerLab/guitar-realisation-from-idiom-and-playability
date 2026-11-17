@@ -3,7 +3,8 @@
 //            drag the pane wider to zoom its tabs
 //   top:     the player: one real occurrence of the picked layout (rhythm, frets, bends, slides as in the
 //            song), played on the shared tab + fretboard + transport; step through occurrences, or open the
-//            whole song in the song view; move its shape along the neck or across strings (scratch only)
+//            whole song in the song view; move its shape along the neck or across strings (scratch only);
+//            flag the occurrence's track as junk
 //   below:   the catalogue explorer (toggled from the transport bar, drag to resize): the path's layouts,
 //            its family one note away (drop / add a note at either end), and where the layout turns up
 // Every small tab is drawn in full, never scrolled: it shrinks to fit when its space is too narrow.
@@ -13,7 +14,7 @@
 // viewer.mjs calls setupCatalogueView once at start.
 
 // What viewer.mjs shares, set once by setupCatalogueView
-let element, remember, recall, statusLabel, openPhrase, setView, showPhrase;
+let element, remember, recall, statusLabel, openPhrase, setView, showPhrase, openFlagBox, showFlagButton;
 // The guitar layouts are drawn on (the optimiser's, string 1 first): places the notes around an open string
 let drawingTuning = [];
 
@@ -50,7 +51,7 @@ let intervalMode = 'first';  // interval paths from the 'first' note (as stored)
  * Returns { openCatalogue, catalogueName }.
  */
 export function setupCatalogueView(viewer) {
-  ({ element, remember, recall, statusLabel, openPhrase, setView, showPhrase } = viewer);
+  ({ element, remember, recall, statusLabel, openPhrase, setView, showPhrase, openFlagBox, showFlagButton } = viewer);
   drawingTuning = viewer.pageConfig.tuning;
   let searchTimer;
   element('catalogue-length').onchange = () => { remember('catalogueLength', element('catalogue-length').value); showPaths(1); };
@@ -64,6 +65,7 @@ export function setupCatalogueView(viewer) {
   element('occurrence-previous').onclick = () => playOccurrence(catalogue.phrase.index - 1);
   element('occurrence-next').onclick = () => playOccurrence(catalogue.phrase.index + 1);
   element('occurrence-open-song').onclick = () => openPhrase(catalogue.phrase.occurrence);
+  element('occurrence-flag').onclick = flagPlayingTrack;
   element('shape-fret-down').onclick = () => moveShape({ frets: -1 });
   element('shape-fret-up').onclick = () => moveShape({ frets: 1 });
   element('shape-string-up').onclick = () => moveShape({ strings: -1 });
@@ -528,9 +530,24 @@ function showPlayer() {
   element('occurrence-previous').disabled = !phrase || phrase.index <= 0;
   element('occurrence-next').disabled = !phrase || phrase.index >= phrase.total - 1;
   element('occurrence-open-song').disabled = !phrase;
+  showFlagButton(element('occurrence-flag'), phrase?.occurrence.junk ? {} : null, Boolean(phrase));
   element('occurrence-label').textContent = phrase
     ? `occurrence ${phrase.index + 1} of ${phrase.total} · ${phrase.occurrence.path} · track ${phrase.occurrence.track_index}: ${phrase.occurrence.track_name} · bar ${phrase.occurrence.bar}`
     : 'Pick a layout to play one of its occurrences';
+}
+
+/** Flag (or un-flag) the track the player's occurrence comes from as junk. */
+function flagPlayingTrack() {
+  const occurrence = catalogue.phrase.occurrence;
+  openFlagBox({
+    gpPath: occurrence.gp_path, trackIndex: occurrence.track_index, trackCount: null,
+    title: `${occurrence.path} · track ${occurrence.track_index}: ${occurrence.track_name}`,
+    onChange: async (songFlags) => {
+      occurrence.junk = String(occurrence.track_index) in songFlags;
+      showPlayer();
+      await showOccurrencePage(catalogue.entry.occurrences.page);
+    },
+  });
 }
 
 // ---- Middle and bottom: layouts, family, where it turns up ----
@@ -632,7 +649,9 @@ function showOccurrences() {
   occurrences.rows.forEach((occurrence, rowIndex) => {
     const song = `${occurrence.path} · track ${occurrence.track_index}: ${occurrence.track_name}`;
     if (song !== lastSong) {
-      list.append(Object.assign(document.createElement('li'), { className: 'occurrence-song', textContent: song }));
+      const header = Object.assign(document.createElement('li'), { className: 'occurrence-song', textContent: song });
+      if (occurrence.junk) header.append(Object.assign(document.createElement('span'), { className: 'badge junk', textContent: 'junk' }));
+      list.append(header);
       lastSong = song;
     }
     const index = (occurrences.page - 1) * occurrences.page_size + rowIndex;

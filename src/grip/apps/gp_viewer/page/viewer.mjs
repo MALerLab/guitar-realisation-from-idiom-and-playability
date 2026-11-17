@@ -4,6 +4,7 @@
 //   annotate.mjs         note panel, selecting notes, the edit keys, the Save box
 //   catalogue_view.mjs   the catalogue view: interval paths, layouts, their family, where they turn up
 //   file_picker.mjs      path box, the Datasets tab (songs / tracks search)
+//   flags.mjs            junk flags: the flag box (song view's top bar, catalogue player)
 //   storage_browser.mjs  the Files tab: recent files + the storage folder as on disk
 //   transport.mjs        the transport bar: play / pause, bars, scrub, loop, speed, their keys
 //   fretboard.mjs        the fretboard drawer, and the tuning label's text
@@ -14,6 +15,7 @@ import { annotationStrokeLetter, choicesToTex } from '/choices_to_tex.mjs';
 import { setupAnnotate } from '/annotate.mjs';
 import { setupCatalogueView } from '/catalogue_view.mjs';
 import { setupFilePicker } from '/file_picker.mjs';
+import { setupFlags } from '/flags.mjs';
 import { setupFretboard, tuningText } from '/fretboard.mjs';
 import { setupStorageBrowser } from '/storage_browser.mjs';
 import { setupTrackMixer } from '/track_mixer.mjs';
@@ -48,6 +50,7 @@ fileSettings.importer.encoding = pageConfig.text_encoding;
 
 const state = {
   song: null,         // the open song (GP file): { path, trackIndex, score, mixer (track_mixer.mjs: track index → sound settings) }
+  songFlags: {},      // the open song's junk flags: track index (as text) → flag
   run: null,          // the open run (optimiser or existing tool): { path, name, kind, label, run: { source, passage, realisations }, positions }
   annotation: null,   // { settings, passage, positions, choices, startChoices, startedFrom, dirty, report }
   phrase: null,       // the catalogue player's occurrence: { passage, choices, positions, label }
@@ -227,6 +230,9 @@ const viewer = {
   renderView, shownPassage, choicesDiffer, changedFromStart, currentBeatMap, updateDropdowns, openFile, showTrack,
   showRunFile, onFileOpened, openCatalogue, openPhrase, setView, showPhrase,
 };
+const flags = setupFlags(viewer);
+// The catalogue player flags tracks too
+Object.assign(viewer, { openFlagBox: flags.openFlagBox, showFlagButton: flags.showFlagButton });
 const fretboard = setupFretboard(viewer);
 // annotate.mjs redraws the fretboard after each selection
 viewer.updateFretboard = fretboard.updateFretboard;
@@ -344,7 +350,24 @@ function updateButtons() {
   if (!state.song) element('run-popover').hidden = true;
   element('edit-button').disabled = !(state.view?.kind === 'song' || state.view?.kind === 'realisation');
   element('save-button').disabled = !state.annotation;
+  flags.showFlagButton(element('flag-button'), state.songFlags[String(state.song?.trackIndex)], state.view?.kind === 'song');
 }
+
+/** The song view's junk button: flag the shown track, or every track of the song. */
+element('flag-button').onclick = () => {
+  const { score, trackIndex, path } = state.song;
+  const songTitle = [score.artist, score.title].filter(Boolean).join(' — ') || path.split('/').at(-1);
+  flags.openFlagBox({
+    gpPath: path, trackIndex, trackCount: score.tracks.length,
+    title: `${songTitle} · track ${trackIndex}: ${score.tracks[trackIndex].name}`,
+    onChange: (songFlags) => {
+      state.songFlags = songFlags;
+      updateButtons();
+      filePicker.refresh();
+      storageBrowser.refresh();
+    },
+  });
+};
 
 // ---- Opening songs (GP files) and runs ----
 
@@ -361,6 +384,7 @@ async function loadSong(path, trackIndex, searched = []) {
     const score = alphaTab.importer.ScoreLoader.loadScoreFromBytes(new Uint8Array(await response.arrayBuffer()), fileSettings);
     const fullPath = decodeURIComponent(response.headers.get('X-GP-Path') ?? encodeURIComponent(path));
     state.song = { path: fullPath, trackIndex, score };
+    state.songFlags = await flags.fetchSongFlags(fullPath);
   } catch (error) {
     statusLabel.textContent = `alphaTab can't read this file: ${error.message ?? error}`;
     return false;

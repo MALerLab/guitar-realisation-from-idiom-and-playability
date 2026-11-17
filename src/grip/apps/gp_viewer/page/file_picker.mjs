@@ -45,7 +45,12 @@ export function setupFilePicker(viewer) {
   buildDatasetBoxes();
   for (const id of ['page-nav-top', 'page-nav-bottom']) pageNavs.push(buildPageNav(element(id)));
   searchFromFirstPage();
-  return { clearListSelection };
+  return { clearListSelection, refresh };
+}
+
+/** Ask for the shown page again (e.g. after a junk flag changed). */
+function refresh() {
+  if (listRequest) showList({ ...listRequest });
 }
 
 /** Un-highlight the list row last opened (another file or a run was opened some other way). */
@@ -116,6 +121,8 @@ function buildListRow(row, lines, trackIndex) {
   const item = document.createElement('li');
   lines.push(['file-path', `${datasetLabels[row.dataset] ?? row.dataset} · ${row.path}`]);
   if (row.parse_error) lines.push(['unreadable', `alphaTab can't read this file: ${row.parse_error}`]);
+  if (row.junk) lines.push(['junk-line', 'flagged junk']);
+  if (row.junk_tracks) lines.push(['junk-line', `${row.junk_tracks} track${row.junk_tracks === 1 ? '' : 's'} flagged junk`]);
   for (const [className, text] of lines) {
     const line = document.createElement('div');
     line.className = className;

@@ -132,6 +132,7 @@ function fileRow(file, showFolderName) {
   item.title = file.path;
   const meta = [file.modified ? timeAgo(file.modified) : null, showFolderName ? file.folder : null].filter(Boolean).join(' · ');
   item.append(rowMain(file.name, file.kind));
+  if (file.junk_tracks) item.querySelector('.row-main').append(junkBadge(file));
   if (meta) item.append(Object.assign(document.createElement('div'), { className: 'row-meta', textContent: meta }));
   item.onclick = async () => {
     const openers = { gp: (path) => openFile(path, 0), catalogue: openCatalogue };
@@ -149,6 +150,11 @@ function rowMain(name, kind = null) {
   main.append(Object.assign(document.createElement('span'), { className: 'row-name', textContent: name }));
   if (kind) main.append(Object.assign(document.createElement('span'), { className: `badge ${kind}`, textContent: KIND_LABELS[kind] ?? kind }));
   return main;
+}
+
+/** A red "junk" badge for a GP file with flagged tracks. */
+function junkBadge(file) {
+  return Object.assign(document.createElement('span'), { className: 'badge junk', textContent: `junk ×${file.junk_tracks}`, title: `${file.junk_tracks} track(s) flagged junk` });
 }
 
 function emptyRow(text) {

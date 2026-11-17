@@ -189,6 +189,13 @@ class DatasetIndex:
             raise ValueError(f"that path exists in several ticked datasets ({', '.join(hits)}); untick all but one, or type the full path")
         return next(iter(hits.values()))
 
+    def locate(self, gp_path: Path) -> tuple[str | None, str | None]:
+        """(dataset name, path relative to its root) of a GP file, or (None, None) outside every dataset."""
+        for name, root in self.roots.items():
+            if gp_path.is_relative_to(root):
+                return name, gp_path.relative_to(root).as_posix()
+        return None, None
+
     def dataset_of(self, gp_path: Path) -> str:
         """The name of the dataset whose root holds `gp_path`, or "storage" for a file outside every dataset."""
         return next((name for name, root in self.roots.items() if gp_path.is_relative_to(root)), "storage")

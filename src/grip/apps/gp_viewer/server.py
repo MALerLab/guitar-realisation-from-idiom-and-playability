@@ -4,7 +4,8 @@ annotate mode records how the player plays a passage (reference passages for cal
 The server listens on localhost; on a remote machine, forward the port (e.g. VS Code Remote-SSH).
 This file is the HTTP side only: config, the route table, and sending replies. Each job lives in its
 own module, free of HTTP: datasets.py (song / track search, GP files), storage.py (the storage browser),
-runs.py (optimiser + existing-tool runs), catalogue.py (the catalogue view), annotate.py (reference passages). The page itself (HTML,
+runs.py (optimiser + existing-tool runs), catalogue.py (the catalogue view), flags.py (junk flags),
+annotate.py (reference passages). The page itself (HTML,
 scripts, styles) lives in page/.
 Settings: configs/gp_viewer/server_v0.3.yaml.
 
@@ -31,6 +32,7 @@ import yaml
 from grip.apps.gp_viewer.annotate import cut_passage, save_reference
 from grip.apps.gp_viewer.catalogue import CatalogueBuild, CatalogueShelf
 from grip.apps.gp_viewer.datasets import DatasetIndex, resolve_inside
+from grip.apps.gp_viewer.flags import FlagStore
 from grip.apps.gp_viewer.runs import find_run_file, load_run_view, optimise_passage
 from grip.apps.gp_viewer.storage import StorageIndex
 from grip.core.guitar import load_guitar_setup
@@ -106,6 +108,7 @@ class ViewerApp:
     datasets: DatasetIndex
     storage: StorageIndex
     catalogues: CatalogueShelf
+    flags: FlagStore
 
     @classmethod
     def load(cls, config: dict[str, Any]) -> "ViewerApp":
@@ -120,6 +123,7 @@ class ViewerApp:
             StorageIndex(storage_root, gp_extensions, browser["hidden_name_endings"], dataset_roots,
                          browser["index_max_age_seconds"]),
             CatalogueShelf(storage_root, config["catalogue"]["builds_kept_open"]),
+            FlagStore(config["paths"]["flags_file"]),
         )
 
     @property
@@ -187,15 +191,29 @@ def search_filters(params: dict[str, str]) -> dict[str, Any]:
 
 
 def track_search(app: ViewerApp, params: dict[str, str]) -> dict[str, Any]:
-    """One page of manifest tracks matching the page's filters (see DatasetIndex.search_tracks)."""
-    return app.datasets.search_tracks(search_filters(params), int(params.get("page", 1)),
-                                      app.config["browse_list"]["page_size"])
+    """One page of manifest tracks matching the page's filters (see DatasetIndex.search_tracks), each with its junk flag."""
+    result = app.datasets.search_tracks(search_filters(params), int(params.get("page", 1)),
+                                        app.config["browse_list"]["page_size"])
+    for row in result["rows"]:
+        row["junk"] = app.flags.is_flagged(row["gp_path"], int(row["track_index"]))
+    return result
 
 
 def song_search(app: ViewerApp, params: dict[str, str]) -> dict[str, Any]:
-    """One page of songs with a track matching the page's filters (see DatasetIndex.search_songs)."""
-    return app.datasets.search_songs(search_filters(params), int(params.get("page", 1)),
-                                     app.config["browse_list"]["page_size"])
+    """One page of songs with a track matching the page's filters (see DatasetIndex.search_songs), each with
+    how many of its tracks are flagged junk."""
+    result = app.datasets.search_songs(search_filters(params), int(params.get("page", 1)),
+                                       app.config["browse_list"]["page_size"])
+    for row in result["rows"]:
+        row["junk_tracks"] = app.flags.flagged_track_count(row["gp_path"])
+    return result
+
+
+def with_junk_counts(app: ViewerApp, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Storage rows, each GP file with how many of its tracks are flagged junk."""
+    for row in rows:
+        row["junk_tracks"] = app.flags.flagged_track_count(row["path"]) if row["kind"] == "gp" else 0
+    return rows
 
 
 def gp_file(app: ViewerApp, params: dict[str, str]) -> FileReply:
@@ -213,14 +231,16 @@ def gp_file(app: ViewerApp, params: dict[str, str]) -> FileReply:
 def storage_folder(app: ViewerApp, params: dict[str, str]) -> dict[str, Any]:
     """One folder of the storage browser (see StorageIndex.list_folder). Params: "folder" (relative; "" = the root)."""
     try:
-        return app.storage.list_folder(params.get("folder", ""))
+        listing = app.storage.list_folder(params.get("folder", ""))
     except ValueError as error:
         raise RouteError(HTTPStatus.NOT_FOUND, str(error)) from error
+    with_junk_counts(app, listing["files"])
+    return listing
 
 
 def recent_files(app: ViewerApp, params: dict[str, str]) -> list[dict[str, Any]]:
     """The newest openable files outside the dataset folders (see StorageIndex.recent)."""
-    return app.storage.recent(app.config["browser"]["recent_count"])
+    return with_junk_counts(app, app.storage.recent(app.config["browser"]["recent_count"]))
 
 
 def run_view(app: ViewerApp, params: dict[str, str]) -> dict[str, Any]:
@@ -266,9 +286,12 @@ def catalogue_entry(app: ViewerApp, params: dict[str, str]) -> dict[str, Any]:
     build = catalogue_build(app, params)
     entry_id, page = int(params.get("entry_id", "")), int(params.get("page", 1))  # not numbers → 400
     try:
-        return build.entry_detail(entry_id, page, app.config["catalogue"]["occurrence_page_size"])
+        detail = build.entry_detail(entry_id, page, app.config["catalogue"]["occurrence_page_size"])
     except ValueError as error:
         raise RouteError(HTTPStatus.NOT_FOUND, str(error)) from error
+    for occurrence in detail["occurrences"]["rows"]:
+        occurrence["junk"] = app.flags.is_flagged(occurrence["gp_path"], int(occurrence["track_index"]))
+    return detail
 
 
 def catalogue_occurrence(app: ViewerApp, params: dict[str, str]) -> dict[str, Any]:
@@ -278,10 +301,27 @@ def catalogue_occurrence(app: ViewerApp, params: dict[str, str]) -> dict[str, An
     entry_id, index = int(params.get("entry_id", "")), int(params.get("index", 0))  # not numbers → 400
     guitar = load_guitar_setup(load_run_config(app.run_config_path)["guitar_setup"])
     try:
-        return build.occurrence_phrase(entry_id, index, app.config["catalogue"]["player_tempo_bpm"],
-                                       guitar.highest_fret, guitar.scale_length_mm)
+        phrase = build.occurrence_phrase(entry_id, index, app.config["catalogue"]["player_tempo_bpm"],
+                                         guitar.highest_fret, guitar.scale_length_mm)
     except ValueError as error:
         raise RouteError(HTTPStatus.NOT_FOUND, str(error)) from error
+    occurrence = phrase["occurrence"]
+    occurrence["junk"] = app.flags.is_flagged(occurrence["gp_path"], int(occurrence["track_index"]))
+    return phrase
+
+
+def flagged_gp_file(app: ViewerApp, gp_path_text: str) -> Path:
+    """The GP file a flag request names (a full path inside a dataset or the storage folder)."""
+    try:
+        return app.datasets.find_gp_file(gp_path_text, [])
+    except ValueError as error:
+        raise RouteError(HTTPStatus.NOT_FOUND, str(error)) from error
+
+
+def song_flags(app: ViewerApp, params: dict[str, str]) -> dict[str, Any]:
+    """The junk flags of one GP file's tracks. Params: "gp_path" (full). Answers {"tracks": {index: flag}}."""
+    gp_path = flagged_gp_file(app, params.get("gp_path", ""))
+    return {"gp_path": str(gp_path), "tracks": app.flags.song_flags(str(gp_path))}
 
 
 GET_ROUTES: dict[str, Callable[[ViewerApp, dict[str, str]], Any]] = {
@@ -297,6 +337,7 @@ GET_ROUTES: dict[str, Callable[[ViewerApp, dict[str, str]], Any]] = {
     "/api/catalogue/path": catalogue_path,
     "/api/catalogue/entry": catalogue_entry,
     "/api/catalogue/occurrence": catalogue_occurrence,
+    "/api/flags": song_flags,
 }
 
 
@@ -317,10 +358,35 @@ def reference(app: ViewerApp, body: dict[str, Any]) -> dict[str, Any]:
     return save_reference(body, app.datasets, app.run_config_path, app.config["paths"]["reference_set_folder"])
 
 
+def set_flags(app: ViewerApp, body: dict[str, Any]) -> dict[str, Any]:
+    """Flag tracks of one GP file as junk, or clear their flags.
+
+    Args:
+        body: {"gp_path" (full), "tracks" (track indices), "flag" (true = flag, false = clear), "note" (optional)}.
+
+    Returns:
+        The file's flags after the change (as song_flags answers).
+    """
+    gp_path = flagged_gp_file(app, str(body.get("gp_path", "")))
+    try:
+        tracks = sorted({int(track) for track in body.get("tracks", [])})
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"tracks must be track numbers ({error})") from error
+    if not tracks or any(track < 0 for track in tracks):
+        raise ValueError("name at least one track (from 0)")
+    if body.get("flag"):
+        dataset, relative_path = app.datasets.locate(gp_path)
+        app.flags.flag(str(gp_path), tracks, str(body.get("note") or "").strip(), dataset, relative_path)
+    else:
+        app.flags.unflag(str(gp_path), tracks)
+    return {"gp_path": str(gp_path), "tracks": app.flags.song_flags(str(gp_path))}
+
+
 POST_ROUTES: dict[str, Callable[[ViewerApp, dict[str, Any]], Any]] = {
     "/api/optimise": optimise,
     "/api/passage": passage_for_annotating,
     "/api/reference": reference,
+    "/api/flags": set_flags,
 }
 
 

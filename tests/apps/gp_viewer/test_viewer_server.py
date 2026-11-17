@@ -161,7 +161,8 @@ def viewer(tmp_path_factory) -> dict[str, Any]:
         "datasets": {"toy": {"label": "Toy", "root": str(TOY_DATASET_ROOT), "tracks_manifest": str(tracks_path),
                              "songs_manifest": str(songs_path)}},
         "paths": {"storage_root": str(storage), "optimiser_run_config": str(RUN_CONFIG),
-                  "reference_set_folder": str(folder / "reference_set"), "alphatab_dist": str(alphatab_dist)},
+                  "reference_set_folder": str(folder / "reference_set"), "alphatab_dist": str(alphatab_dist),
+                  "flags_file": str(folder / "flags/track_flags.json")},
         "alphatab": {"text_encoding": "windows-1252", "soundfont": "soundfont/sonivox.sf2"},
         "browse_list": {"page_size": 2},
         "browser": {"index_max_age_seconds": 0, "recent_count": 10, "hidden_name_endings": [".gp2tokens2gp.gp5"]},
@@ -421,6 +422,30 @@ def test_catalogue_refusals(viewer):
     assert get(viewer, "/api/catalogue", build=str(viewer["folder"]))[0] == 404
     assert catalogue_get(viewer, "/api/catalogue/path", path="9 9 9")[0] == 404
     assert catalogue_get(viewer, "/api/catalogue/entry", entry_id=99)[0] == 404
+
+
+# ---- junk flags ----
+
+def test_flag_a_track_as_junk_then_clear_it(viewer):
+    gp_path = str(TOY_DATASET_ROOT / TOY_GP_FILE)
+    status, reply = post(viewer, "/api/flags", {"gp_path": gp_path, "tracks": [0], "flag": True, "note": "nonsense fingering"})
+    assert status == 200 and reply["tracks"]["0"]["note"] == "nonsense fingering"
+    # The flag shows on the song's own flags, the track and song rows, and in the file on disk
+    assert json.loads(get(viewer, "/api/flags", gp_path=gp_path)[2])["tracks"]["0"]["reason"] == "junk"
+    tracks = json.loads(get(viewer, "/api/tracks", datasets="toy", file_name=TOY_GP_FILE)[2])["rows"]
+    assert {row["track_index"]: row["junk"] for row in tracks} == {0: True, 1: False}
+    assert json.loads(get(viewer, "/api/songs", query="hammer", datasets="toy")[2])["rows"][0]["junk_tracks"] == 1
+    saved = json.loads((viewer["folder"] / "flags/track_flags.json").read_text())["flags"]
+    assert [(flag["dataset"], flag["path"], flag["track_index"]) for flag in saved] == [("toy", TOY_GP_FILE, 0)]
+    # Clearing it empties everything again
+    status, reply = post(viewer, "/api/flags", {"gp_path": gp_path, "tracks": [0], "flag": False})
+    assert status == 200 and reply["tracks"] == {}
+    assert json.loads((viewer["folder"] / "flags/track_flags.json").read_text())["flags"] == []
+
+
+def test_flags_refuse_unknown_files_and_empty_track_lists(viewer):
+    assert post(viewer, "/api/flags", {"gp_path": str(viewer["folder"] / "viewer.yaml"), "tracks": [0], "flag": True})[0] == 404
+    assert post(viewer, "/api/flags", {"gp_path": str(TOY_DATASET_ROOT / TOY_GP_FILE), "tracks": [], "flag": True})[0] == 400
 
 
 # ---- annotate mode ----

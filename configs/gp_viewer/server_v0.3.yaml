@@ -2,7 +2,7 @@
 # how alphaTab reads files.
 # Read by src/grip/apps/gp_viewer/server.py. Paths are relative to the repo root unless they start with ~ or /.
 # v0.2: one dataset → a list of datasets (DadaGP, GOAT, ProgGP), each with its own folder and manifests.
-# v0.3: storage browser (storage_root + browser section) replaces the flat runs folder; catalogue view.
+# v0.3: storage browser (storage_root + browser section) replaces the flat runs folder; catalogue view; junk flags.
 version: "0.3"
 
 server:
@@ -37,6 +37,8 @@ paths:
   optimiser_run_config: configs/optimiser/optimiser_run_v1.1.yaml
   # Reference passages saved from annotate mode (src/grip/calibration/reference_set.py); off git
   reference_set_folder: ~/storage/grip/calibration/reference_set
+  # Junk flags set while browsing (corpus clean-up): one JSON file, off git (it names dataset songs)
+  flags_file: ~/storage/grip/flags/track_flags.json
   # alphaTab's browser build, notation font and soundfont (installed by `uv run npm ci`)
   alphatab_dist: node_modules/@coderline/alphatab/dist
 
