@@ -20,7 +20,3 @@ uv run npm ci
 uv run grip-optimise tests/optimiser/licks/a_minor_arpeggio.yaml   # a few realisations of a short lick, as tabs with their costs
 uv run pytest
 ```
-
-## More
-- `PROJECT.md`: layout, vocabulary, invariants
-- `docs/design_spec.md`: how the hand model, the idiom catalogue and the chooser fit together

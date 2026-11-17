@@ -21,13 +21,12 @@ node_modules/
 /manifests/*.parquet
 *.csv
 
-# Docs: only the public ones tracked; papers, survey write-ups and working notes stay local
-/docs/*
-!/docs/design_spec.md
-!/docs/parser_audit.md
+# Docs: all local (design spec, audits, survey write-ups, working notes)
+/docs/
 
 # Local notes + worktree setup
 /CLAUDE.md
+/PROJECT.md
 /todo.md
 /setup_worktree.sh
 
