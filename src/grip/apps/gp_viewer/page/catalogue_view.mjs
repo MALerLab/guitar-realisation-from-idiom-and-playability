@@ -7,12 +7,15 @@
 //   below:   the catalogue explorer (toggled from the transport bar, drag to resize): the path's layouts,
 //            its family one note away (drop / add a note at either end), and where the layout turns up
 // Every small tab is drawn in full, never scrolled: it shrinks to fit when its space is too narrow.
-// Layouts are drawn with their lowest fretted note on fret 12 (the catalogue keeps frets relative).
+// Layouts are drawn with their lowest fretted note on fret 12 (the catalogue keeps frets relative), except
+// around an open string: that's a fixed spot, so its stretch is drawn at its real frets, found from the path.
 // Interval paths read from the first note (as stored) or, by choice, from the lowest note.
 // viewer.mjs calls setupCatalogueView once at start.
 
 // What viewer.mjs shares, set once by setupCatalogueView
 let element, remember, recall, statusLabel, openPhrase, setView, showPhrase;
+// The guitar layouts are drawn on (the optimiser's, string 1 first): places the notes around an open string
+let drawingTuning = [];
 
 // The fret a layout's lowest fretted note is drawn on: neutral, mid-neck
 const NEUTRAL_FRET = 12;
@@ -48,6 +51,7 @@ let intervalMode = 'first';  // interval paths from the 'first' note (as stored)
  */
 export function setupCatalogueView(viewer) {
   ({ element, remember, recall, statusLabel, openPhrase, setView, showPhrase } = viewer);
+  drawingTuning = viewer.pageConfig.tuning;
   let searchTimer;
   element('catalogue-length').onchange = () => { remember('catalogueLength', element('catalogue-length').value); showPaths(1); };
   element('catalogue-members-only').checked = recall('catalogueMembersOnly', '1') === '1';
@@ -99,12 +103,45 @@ function tokenCell({ string, slideLanding, place, bent }, offset) {
   return [string, (slideLanding ? '/' : '') + fret + (bent ? 'b' : '')];
 }
 
-/** A layout as text tab lines, string 1 on top, 6 strings (7 if it uses string 7); lowest fretted note on fret 12. */
-export function layoutTabLines(layout) {
-  const tokens = layout.split(' ').map(parseLayoutToken);
+/**
+ * Where each token's relative frets are drawn from (fret = relative + offset), per stretch (the run start, then
+ * each slide landing: frets and semitones restart there). A stretch holding an open string is drawn at its real
+ * frets: the open string's pitch and the path's semitones place the stretch's first note, hence its first
+ * fretted note's fret. Others (and any stretch that doesn't add up on the drawing tuning, e.g. a drop-D track)
+ * use the neutral offset: the layout's lowest fretted note on fret 12.
+ */
+function stretchOffsets(tokens, intervalPath) {
+  const semitones = intervalPath.split(' ').map((text) => Number(text.match(/-?\d+/)[0]));
   const relativeFrets = tokens.filter((token) => isRelativeFret(token.place)).map((token) => Number(token.place));
-  const offset = NEUTRAL_FRET - (relativeFrets.length ? Math.min(...relativeFrets) : 0);
-  const cells = tokens.map((token) => tokenCell(token, offset));
+  const neutral = NEUTRAL_FRET - (relativeFrets.length ? Math.min(...relativeFrets) : 0);
+  const stretchOf = [];
+  tokens.forEach((token, index) => stretchOf.push(index === 0 ? 0 : stretchOf[index - 1] + (token.slideLanding ? 1 : 0)));
+  const offsets = new Map();
+  for (const stretch of new Set(stretchOf)) {
+    const members = tokens.map((token, index) => index).filter((index) => stretchOf[index] === stretch);
+    const opens = members.filter((index) => tokens[index].place === 'o');
+    const firstFretted = members.find((index) => isRelativeFret(tokens[index].place));
+    const openPitch = (index) => drawingTuning[tokens[index].string - 1];
+    let offset = neutral;
+    if (opens.length && firstFretted !== undefined && opens.every((index) => openPitch(index) !== undefined)
+        && drawingTuning[tokens[firstFretted].string - 1] !== undefined) {
+      // The stretch's first note's pitch, from each open string; they must agree
+      const starts = new Set(opens.map((index) => openPitch(index) - semitones[index]));
+      const start = [...starts][0];
+      const anchorFret = start + semitones[firstFretted] - drawingTuning[tokens[firstFretted].string - 1];
+      const frets = members.filter((index) => isRelativeFret(tokens[index].place)).map((index) => Number(tokens[index].place) + anchorFret);
+      if (starts.size === 1 && frets.every((fret) => fret >= 1 && fret <= 24)) offset = anchorFret;
+    }
+    offsets.set(stretch, offset);
+  }
+  return tokens.map((token, index) => offsets.get(stretchOf[index]));
+}
+
+/** A layout as text tab lines, string 1 on top, 6 strings (7 if it uses string 7); see stretchOffsets for the frets. */
+export function layoutTabLines(layout, intervalPath) {
+  const tokens = layout.split(' ').map(parseLayoutToken);
+  const offsets = stretchOffsets(tokens, intervalPath);
+  const cells = tokens.map((token, index) => tokenCell(token, offsets[index]));
   const stringCount = Math.max(6, ...cells.map(([string]) => string));
   const widths = cells.map(([, text]) => text.length);
   const lines = [];
@@ -154,8 +191,9 @@ function markIntervalMode() {
   }
 }
 
-function tabElement(layout, className, baseFont) {
-  const tab = Object.assign(document.createElement('pre'), { className: `mini-tab ${className}`, textContent: layoutTabLines(layout).join('\n') });
+/** A small tab element; `baseFont` (px) is its size before fitting (see fitTab). */
+function tabElement(layout, intervalPath, className, baseFont) {
+  const tab = Object.assign(document.createElement('pre'), { className: `mini-tab ${className}`, textContent: layoutTabLines(layout, intervalPath).join('\n') });
   tab.dataset.baseFont = String(baseFont);
   return tab;
 }
@@ -304,7 +342,7 @@ function pathRow(path) {
     className: 'row-meta',
     textContent: `${path.length} notes · ${path.layout_count} layout${path.layout_count === 1 ? '' : 's'}` + (path.member_layout_count < path.layout_count ? ` (${path.member_layout_count} members)` : ''),
   });
-  item.append(main, tabElement(path.best_layout, 'path-tab', PATH_TAB_FONT), meta);
+  item.append(main, tabElement(path.best_layout, path.interval_path, 'path-tab', PATH_TAB_FONT), meta);
   item.onclick = () => pickPath(path.interval_path);
   return item;
 }
@@ -527,7 +565,7 @@ function layoutItem(entry) {
     Object.assign(document.createElement('span'), { textContent: `${entry.occurrence_count}×` }),
     ...tags.map((tag) => Object.assign(document.createElement('span'), { className: 'tag', textContent: tag })),
   );
-  item.append(tabElement(entry.layout, 'layout-tab', LAYOUT_TAB_FONT), stats);
+  item.append(tabElement(entry.layout, entry.interval_path, 'layout-tab', LAYOUT_TAB_FONT), stats);
   item.onclick = () => {
     if (catalogue.entry?.entry.entry_id === entry.entry_id) return;
     catalogue.history.push({ interval_path: catalogue.path.path.interval_path, entry_id: catalogue.entry?.entry.entry_id ?? null });
@@ -572,7 +610,7 @@ function familyPath(path) {
 function familyLayout(entry) {
   const button = Object.assign(document.createElement('button'), { type: 'button', className: 'family-item layout' });
   if (!entry.is_member) button.classList.add('below-line');
-  button.append(tabElement(entry.layout, 'family-tab', FAMILY_TAB_FONT),
+  button.append(tabElement(entry.layout, entry.interval_path, 'family-tab', FAMILY_TAB_FONT),
     Object.assign(document.createElement('span'), { className: 'badge', textContent: `${entry.song_count}` }));
   button.title = `${displayPath(entry.interval_path)} · ${entry.song_count} songs`;
   button.onclick = () => pickPath(entry.interval_path, entry.entry_id);

@@ -161,14 +161,15 @@ def guess_content_type(path: Path) -> str:
 
 def page_config(app: ViewerApp, params: dict[str, str]) -> dict[str, Any]:
     """How alphaTab should read files, where the soundfont is, the Run button's default k, the neck's
-    fret count (the optimiser's guitar), the datasets the page can search, the storage folder, and where
+    fret count and tuning (the optimiser's guitar), the datasets the page can search, the storage folder, and where
     reference passages go."""
     alphatab = app.config["alphatab"]
     run_config = load_run_config(app.run_config_path)
+    guitar = load_guitar_setup(run_config["guitar_setup"])
     return {
         "text_encoding": alphatab["text_encoding"], "soundfont_url": f"/alphatab/{alphatab['soundfont']}",
         "k_best": run_config["search"]["k_best"],
-        "highest_fret": load_guitar_setup(run_config["guitar_setup"]).highest_fret,
+        "highest_fret": guitar.highest_fret, "tuning": list(guitar.tuning),
         "datasets": [{"name": name, "label": dataset["label"]} for name, dataset in app.config["datasets"].items()],
         "storage_root": str(app.storage.root),
         "reference_set_folder": str(app.config["paths"]["reference_set_folder"]),

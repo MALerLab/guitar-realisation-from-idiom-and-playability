@@ -240,7 +240,7 @@ def test_page_config(viewer):
     assert config["text_encoding"] == "windows-1252"
     assert config["soundfont_url"] == "/alphatab/soundfont/sonivox.sf2"
     assert config["datasets"] == [{"name": "toy", "label": "Toy"}]
-    assert isinstance(config["k_best"], int) and config["highest_fret"] >= 19
+    assert isinstance(config["k_best"], int) and config["highest_fret"] >= 19 and len(config["tuning"]) in (6, 7)
     assert config["reference_set_folder"].endswith("reference_set")
 
 
