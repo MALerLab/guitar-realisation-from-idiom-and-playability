@@ -183,7 +183,7 @@ function singleNoteBlocks(shown, index) {
     const start = state.annotation.startChoices[index];
     choiceRows.push(['started as', `string ${start.string ?? '–'} · fret ${start.fret ?? '–'} · finger ${start.finger ?? 'x'} · ${start.stroke ?? 'x'}`]);
   }
-  const blocks = [title, definitionList(noteRows), panelHeading(shown.editable ? 'Annotation' : `Realisation #${shown.realisation.rank}`), definitionList(choiceRows)];
+  const blocks = [title, definitionList(noteRows), panelHeading(shown.editable ? 'Annotation' : shown.realisation ? `Realisation #${shown.realisation.rank}` : shown.label), definitionList(choiceRows)];
 
   // Position options: plain list when viewing, buttons when annotating
   const positions = shown.positions[index];
@@ -371,7 +371,7 @@ function setupEditKeys() {
       select([]);
     } else if (key in EDIT_KEYS) {
       if (!shown.editable) {
-        statusLabel.textContent = 'press Edit to start annotating from this realisation';
+        if (state.view.kind === 'realisation') statusLabel.textContent = 'press Edit to start annotating from this realisation';
         return;
       }
       event.preventDefault();

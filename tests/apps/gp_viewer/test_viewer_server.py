@@ -87,6 +87,46 @@ def write_toy_existing_tool_run(path: Path) -> Path:
     })
 
 
+def write_toy_catalogue(build: Path) -> None:
+    """A hand-made catalogue build over hammer.gp5 track 0: interval path "0 2 0" in two layouts (string 3, a
+    member; string 4, below the line), and the 2-note paths inside them ("0 2", "0 -2")."""
+    entries = pd.DataFrame({
+        "entry_id": [0, 1, 2, 3, 4, 5],
+        "length": [2, 2, 2, 2, 3, 3],
+        "interval_path": ["0 2", "0 -2", "0 2", "0 -2", "0 2 0", "0 2 0"],
+        "layout": ["3:0 3:+2", "3:0 3:-2", "4:0 4:+2", "4:0 4:-2", "3:0 3:+2 3:0", "4:0 4:+2 4:0"],
+        "song_count": [1, 1, 1, 1, 1, 1],
+        "occurrence_count": [1, 1, 1, 1, 1, 1],
+        "prefix_entry_id": [None, None, None, None, 0, 2],
+        "suffix_entry_id": [None, None, None, None, 1, 3],
+    })
+    (build / "counts").mkdir(parents=True)
+    (build / "occurrences").mkdir()
+    (build / "notes").mkdir()
+    for length in (2, 3):
+        entries[entries["length"] == length].assign(key=b"").to_parquet(build / f"counts/length={length:02d}.parquet")
+    pd.DataFrame({"entry_id": entries["entry_id"], "length": entries["length"], "passes_threshold": True,
+                  "is_fragment": False, "fragment_of": pd.array([None] * 6, dtype="Int64"), "contained_share": 0.0,
+                  "is_member": [True, True, True, True, True, False]}).to_parquet(build / "membership.parquet")
+    pd.DataFrame({"entry_id": [0, 1, 2, 3], "track_id": 0, "line_position": [0, 1, 0, 1]}).to_parquet(
+        build / "occurrences/length=02.parquet")
+    pd.DataFrame({"entry_id": [4, 5], "track_id": 0, "line_position": [0, 0]}).to_parquet(
+        build / "occurrences/length=03.parquet")
+    # The line: string 3 frets 5 → 7 (hammer-on) → 5 (pull-off), a folded repeat of the last note, then a chord
+    pd.DataFrame({
+        "song_id": 0, "track_id": 0, "role": ["note", "note", "note", "repeat", "x"], "line_position": [0, 1, 2, -1, -1],
+        "bar_index": [1, 1, 2, 2, 2], "onset_tick": [3840, 4800, 7680, 8640, 9600], "duration_tick": 960,
+        "string": [3, 3, 3, 3, 2], "fret": [5, 7, 5, 5, 5], "pitch": [60, 62, 60, 60, 64], "kind": 0, "bent": False,
+        "slide_landing": False, "techniques": [["pick_stroke_down"], ["hammer_pull_destination"],
+                                               ["hammer_pull_destination"], [], []],
+    }).to_parquet(build / "notes/shard00000.parquet")
+    pd.DataFrame({"dataset": ["toy"], "path": [TOY_GP_FILE], "track_index": [0], "track_name": ["Lead"],
+                  "song_id": [0], "track_id": [0], "tuning": [[64, 59, 55, 50, 45, 40]]}).to_parquet(build / "tracks.parquet")
+    write_json(build / "build_info.json", {"built_at": "2026-11-17T09:00:00", "songs_chosen": 1,
+                                           "config": {"dataset_root": str(TOY_DATASET_ROOT), "member_min_songs": 1,
+                                                      "fragment_share": 0.9}})
+
+
 def write_toy_storage(storage: Path) -> None:
     """A toy storage folder: two optimiser runs (older, newer), an existing-tool run, a GP file in an audit
     folder, and things the browser must hide (a text file, a non-run JSON, a DadaGP re-save, an empty folder)."""
@@ -101,6 +141,7 @@ def write_toy_storage(storage: Path) -> None:
     (audit / "notes.txt").write_text("not openable")
     write_json(storage / "survey/package.json", {"name": "not a run"})
     (storage / "empty_folder").mkdir()
+    write_toy_catalogue(storage / "catalogue/toy_build")
 
 
 @pytest.fixture(scope="module")
@@ -124,6 +165,7 @@ def viewer(tmp_path_factory) -> dict[str, Any]:
         "alphatab": {"text_encoding": "windows-1252", "soundfont": "soundfont/sonivox.sf2"},
         "browse_list": {"page_size": 2},
         "browser": {"index_max_age_seconds": 0, "recent_count": 10, "hidden_name_endings": [".gp2tokens2gp.gp5"]},
+        "catalogue": {"path_page_size": 50, "occurrence_page_size": 10, "builds_kept_open": 2, "player_tempo_bpm": 90},
         "gp_files": {"allowed_extensions": [".gp3", ".gp4", ".gp5", ".gpx", ".gp"]},
     }
     config_path = folder / "viewer.yaml"
@@ -246,7 +288,7 @@ def test_gp_file_refusals_say_why_in_the_status_line(viewer):
 def test_storage_root_lists_only_folders_with_something_to_open(viewer):
     status, _, body, _ = get(viewer, "/api/storage", folder="")
     listing = json.loads(body)
-    assert status == 200 and listing["folders"] == ["audit", "existing_tool_runs", "optimiser_runs"]
+    assert status == 200 and listing["folders"] == ["audit", "catalogue", "existing_tool_runs", "optimiser_runs"]
     assert listing["files"] == [] and listing["root"] == str(viewer["storage"])
 
 
@@ -271,7 +313,7 @@ def test_storage_refuses_folders_outside_or_empty(viewer):
 def test_recent_lists_every_kind_newest_first(viewer):
     recent = json.loads(get(viewer, "/api/recent")[2])
     names = [file["name"] for file in recent]
-    assert set(names) == {"older_run.json", "newer_run.json", "toytool_run.json", "audit_copy.gp5"}
+    assert set(names) == {"older_run.json", "newer_run.json", "toytool_run.json", "audit_copy.gp5", "toy_build"}
     assert names.index("newer_run.json") < names.index("older_run.json")
 
 
@@ -311,6 +353,74 @@ def test_run_files_outside_storage_or_not_runs_are_refused(viewer):
     assert get(viewer, "/api/run", path="optimiser_runs/v9/older_run.json")[0] == 404  # full paths only
     status, _, _, reason = get(viewer, "/api/run", path=str(viewer["storage"] / "survey/package.json"))
     assert status == 400 and "not a run file" in reason
+
+
+# ---- catalogue view ----
+
+def catalogue_get(viewer: dict[str, Any], route: str, **params: Any) -> tuple[int, Any]:
+    """GET a catalogue route on the toy build; answers (status, parsed JSON or None)."""
+    status, _, body, _ = get(viewer, route, build=str(viewer["storage"] / "catalogue/toy_build"), **params)
+    return status, json.loads(body) if status == 200 else None
+
+
+def test_catalogue_build_shows_as_one_item_in_its_folder(viewer):
+    listing = json.loads(get(viewer, "/api/storage", folder="catalogue")[2])
+    assert listing["folders"] == [] and [(file["name"], file["kind"]) for file in listing["files"]] == [("toy_build", "catalogue")]
+
+
+def test_catalogue_summary_counts_per_length(viewer):
+    status, summary = catalogue_get(viewer, "/api/catalogue")
+    assert status == 200 and summary["name"] == "toy_build"
+    assert summary["lengths"]["3"] == {"layouts": 2, "member_layouts": 1, "paths": 1}
+    assert summary["lengths"]["2"]["paths"] == 2
+
+
+def test_catalogue_paths_group_layouts_and_filter(viewer):
+    _, page = catalogue_get(viewer, "/api/catalogue/paths", length=3)
+    path = page["rows"][0]
+    assert page["total"] == 1 and path["interval_path"] == "0 2 0"
+    assert (path["layout_count"], path["member_layout_count"], path["song_count"], path["best_layout"]) == (2, 1, 1, "3:0 3:+2 3:0")
+    assert catalogue_get(viewer, "/api/catalogue/paths", length=2, query="-2")[1]["total"] == 1
+    assert catalogue_get(viewer, "/api/catalogue/paths", members_only=1)[1]["total"] == 3
+
+
+def test_catalogue_path_family_one_note_away(viewer):
+    _, detail = catalogue_get(viewer, "/api/catalogue/path", path="0 2 0")
+    assert [layout["layout"] for layout in detail["layouts"]] == ["3:0 3:+2 3:0", "4:0 4:+2 4:0"]
+    family = {name: [path["interval_path"] for path in paths] for name, paths in detail["family"].items()}
+    assert family == {"drop_last": ["0 2"], "drop_first": ["0 -2"], "add_end": [], "add_start": []}
+    _, shorter = catalogue_get(viewer, "/api/catalogue/path", path="0 2")
+    assert [path["interval_path"] for path in shorter["family"]["add_end"]] == ["0 2 0"]
+    assert shorter["family"]["add_start"] == []
+
+
+def test_catalogue_entry_family_and_where_it_turns_up(viewer):
+    _, detail = catalogue_get(viewer, "/api/catalogue/entry", entry_id=4)
+    assert [entry["layout"] for entry in detail["family"]["drop_last"]] == ["3:0 3:+2"]
+    assert [entry["layout"] for entry in detail["family"]["drop_first"]] == ["3:0 3:-2"]
+    occurrence = detail["occurrences"]["rows"][0]
+    assert detail["occurrences"]["total"] == 1
+    assert occurrence["gp_path"] == str(TOY_DATASET_ROOT / TOY_GP_FILE) and occurrence["track_index"] == 0
+    assert (occurrence["bar"], occurrence["first_onset_tick"], occurrence["last_onset_tick"]) == (2, 3840, 7680)
+
+
+def test_catalogue_occurrence_plays_the_real_phrase(viewer):
+    status, phrase = catalogue_get(viewer, "/api/catalogue/occurrence", entry_id=4, index=0)
+    assert status == 200 and (phrase["index"], phrase["total"]) == (0, 1)
+    choices = [(choice["string"], choice["fret"], choice["stroke_letter"]) for choice in phrase["choices"]]
+    assert choices == [(3, 5, "D"), (3, 7, "h"), (3, 5, "p"), (3, 5, None)]  # the folded repeat plays too, the chord doesn't
+    notes = phrase["passage"]["notes"]
+    assert [note["bar_start"] for note in notes] == [True, False, True, False]
+    assert notes[1]["articulations"] == ["legato"] and phrase["passage"]["tempo_bpm"] == 90
+    assert [note["counted"] for note in notes] == [True, True, True, False] and notes[0]["catalogue_kind"] == "fretted"
+    assert phrase["passage"]["guitar"]["tuning"] == [64, 59, 55, 50, 45, 40] and len(phrase["positions"]) == 4
+    assert catalogue_get(viewer, "/api/catalogue/occurrence", entry_id=4, index=1)[0] == 404
+
+
+def test_catalogue_refusals(viewer):
+    assert get(viewer, "/api/catalogue", build=str(viewer["folder"]))[0] == 404
+    assert catalogue_get(viewer, "/api/catalogue/path", path="9 9 9")[0] == 404
+    assert catalogue_get(viewer, "/api/catalogue/entry", entry_id=99)[0] == 404
 
 
 # ---- annotate mode ----

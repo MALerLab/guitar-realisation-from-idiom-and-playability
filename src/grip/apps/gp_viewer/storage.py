@@ -1,5 +1,6 @@
-"""The storage browser: every file the viewer opens under the storage root (GP files, optimiser runs,
-existing-tool runs), in folders exactly as on disk, plus the newest ones outside the dataset folders.
+"""The storage browser: everything the viewer opens under the storage root (GP files, optimiser runs,
+existing-tool runs, catalogue builds), in folders exactly as on disk, plus the newest ones outside the
+dataset folders. A catalogue build is a folder; it shows as one openable item in its parent folder.
 
 The whole root is walked at most once every few seconds (a walk of ~170k files takes ~0.2 s), so a run
 saved a moment ago shows up without restarting the server.
@@ -13,6 +14,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from grip.apps.gp_viewer.catalogue import is_catalogue_build
+
 # A run file's format name → the kind the page knows it by; run files write their format block first
 RUN_FORMAT_KINDS = {"grip_optimiser_run": "optimiser_run", "grip_existing_tool_run": "existing_tool_run"}
 RUN_FORMAT_PATTERN = re.compile(rb'"format"\s*:\s*\{\s*"name"\s*:\s*"([a-z_]+)"')
@@ -22,8 +25,8 @@ FORMAT_PEEK_BYTES = 256
 
 @dataclass(frozen=True)
 class OpenableFile:
-    """One file the viewer can open: its full path, kind ("gp", "optimiser_run", "existing_tool_run")
-    and modification time (seconds since the epoch; 0 inside the dataset folders, which never change)."""
+    """One thing the viewer can open: its full path, kind ("gp", "optimiser_run", "existing_tool_run",
+    "catalogue" = a build folder) and modification time (seconds since the epoch; 0 inside the dataset folders, which never change)."""
     path: Path
     kind: str
     modified: float
@@ -130,7 +133,11 @@ class StorageIndex:
             found = []
             for entry in entries:
                 if entry.is_dir(follow_symlinks=False):
-                    if in_dataset or Path(entry.path) not in self.dataset_roots:
+                    if not in_dataset and is_catalogue_build(Path(entry.path)):
+                        # A catalogue build opens as a whole; its tables are never browsed
+                        modified = (Path(entry.path) / "membership.parquet").stat().st_mtime
+                        found.append(OpenableFile(Path(entry.path), "catalogue", modified))
+                    elif in_dataset or Path(entry.path) not in self.dataset_roots:
                         folders_to_visit.append(Path(entry.path))
                 elif entry.is_file(follow_symlinks=False) and (openable := self.openable_file(entry, in_dataset)):
                     found.append(openable)

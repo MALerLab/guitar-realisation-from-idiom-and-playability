@@ -2,6 +2,7 @@
 // (tracks, realisations, Run pop-up, Edit), the sidebar and drawers, and opening songs (GP files) and runs.
 // The other files each get what they need from here through one `viewer` object when the page starts:
 //   annotate.mjs         note panel, selecting notes, the edit keys, the Save box
+//   catalogue_view.mjs   the catalogue view: interval paths, layouts, their family, where they turn up
 //   file_picker.mjs      path box, the Datasets tab (songs / tracks search)
 //   storage_browser.mjs  the Files tab: recent files + the storage folder as on disk
 //   transport.mjs        the transport bar: play / pause, bars, scrub, loop, speed, their keys
@@ -11,6 +12,7 @@
 import * as alphaTab from '/alphatab/alphaTab.mjs';
 import { annotationStrokeLetter, choicesToTex } from '/choices_to_tex.mjs';
 import { setupAnnotate } from '/annotate.mjs';
+import { setupCatalogueView } from '/catalogue_view.mjs';
 import { setupFilePicker } from '/file_picker.mjs';
 import { setupFretboard, tuningText } from '/fretboard.mjs';
 import { setupStorageBrowser } from '/storage_browser.mjs';
@@ -48,7 +50,10 @@ const state = {
   song: null,         // the open song (GP file): { path, trackIndex, score, mixer (track_mixer.mjs: track index → sound settings) }
   run: null,          // the open run (optimiser or existing tool): { path, name, kind, label, run: { source, passage, realisations }, positions }
   annotation: null,   // { settings, passage, positions, choices, startChoices, startedFrom, dirty, report }
-  view: null,         // what the score shows: { kind: 'song' } (song view) | { kind: 'realisation', rank } | { kind: 'annotation' }
+  phrase: null,       // the catalogue player's occurrence: { passage, choices, positions, label }
+  songSideView: null, // the song view's `view`, kept while the catalogue view shows (they share one tab)
+  view: null,         // what the score shows: { kind: 'song' } | { kind: 'realisation', rank } | { kind: 'annotation' }
+                      //   | { kind: 'phrase' } (catalogue view: the player's occurrence)
   selection: [],      // selected passage note indices, in order (realisation + annotation views)
   draggedBeats: null, // the song view's last click or drag: { first, last } alphaTab beats
 };
@@ -153,7 +158,16 @@ function shownPassage() {
     const { passage, positions, choices } = state.annotation;
     return { passage, positions, choices, realisation: null, editable: true };
   }
+  if (state.view?.kind === 'phrase') {
+    const { passage, positions, choices, label } = state.phrase;
+    return { passage, positions, choices, realisation: null, editable: false, label };
+  }
   return null;
+}
+
+/** True while the catalogue view shows. */
+function inCatalogueMode() {
+  return document.body.classList.contains('catalogue-mode');
 }
 
 /** True if two choices for one note differ in string, fret, finger or stroke. */
@@ -211,7 +225,7 @@ function currentBeatMap() {
 const viewer = {
   element, statusLabel, api, state, pageConfig, postJson, remember, recall,
   renderView, shownPassage, choicesDiffer, changedFromStart, currentBeatMap, updateDropdowns, openFile, showTrack,
-  showRunFile, onFileOpened,
+  showRunFile, onFileOpened, openCatalogue, openPhrase, setView, showPhrase,
 };
 const fretboard = setupFretboard(viewer);
 // annotate.mjs redraws the fretboard after each selection
@@ -220,6 +234,7 @@ const annotate = setupAnnotate(viewer);
 const mixer = setupTrackMixer(viewer);
 const transport = setupTransport(viewer);
 const filePicker = setupFilePicker(viewer);
+const catalogueView = setupCatalogueView(viewer);
 const storageBrowser = setupStorageBrowser(viewer);
 
 // ---- Drawing ----
@@ -239,9 +254,10 @@ function renderView(keepScroll = false) {
     const choices = editing
       ? shown.choices.map((choice, index) => ({ ...choice, stroke_letter: annotationStrokeLetter(shown.passage, shown.choices, index) }))
       : shown.choices;
-    const trackName = editing
-      ? `annotation (from ${state.annotation.startedFrom})`
-      : `${state.run.label} #${shown.realisation.rank} · cost ${shown.realisation.total_cost.toFixed(2)}`;
+    let trackName;
+    if (editing) trackName = `annotation (from ${state.annotation.startedFrom})`;
+    else if (state.view.kind === 'phrase') trackName = shown.label;
+    else trackName = `${state.run.label} #${shown.realisation.rank} · cost ${shown.realisation.total_cost.toFixed(2)}`;
     const score = alphaTab.importer.ScoreLoader.loadAlphaTex(choicesToTex(shown.passage, choices, shown.passage.name, trackName), new alphaTab.Settings());
     if (editing) colourChangedNotes(score);
     api.renderScore(score, [0]);
@@ -261,8 +277,11 @@ function renderView(keepScroll = false) {
  *  passage (realisation / annotation) is shown, the mixer's "no song" line. */
 function updatePanels() {
   document.body.classList.toggle('has-score', state.view !== null);
-  document.body.classList.toggle('details-open', shownPassage() !== null);
+  document.body.classList.toggle('details-open', shownPassage() !== null && !inCatalogueMode());
   element('mixer-empty').hidden = Boolean(state.song);
+  element('empty-state').querySelector('span').textContent = inCatalogueMode()
+    ? 'Pick an interval path on the left to play one of its occurrences here.'
+    : 'Pick a file on the left: recent runs, the storage folders, or the datasets.';
 }
 
 /** Colour the fret numbers of annotation notes that differ from the starting draft. */
@@ -284,6 +303,7 @@ api.postRenderFinished.on(() => {
 });
 
 function updateTitle() {
+  if (document.body.classList.contains('catalogue-mode')) return;
   const song = state.song?.score;
   const songTitle = song ? [song.artist, song.title].filter(Boolean).join(' — ') || '(untitled)' : null;
   const passageName = shownPassage() && state.run && state.view.kind === 'realisation'
@@ -353,6 +373,7 @@ async function loadSong(path, trackIndex, searched = []) {
 /** Open a GP file on one track; closes any run and annotation. True if it opened. */
 async function openFile(path, trackIndex = 0, searched = []) {
   if (!confirmDiscardAnnotation('Open another file')) return false;
+  if (inCatalogueMode()) setView('song', false);
   api.stop();
   if (!(await loadSong(path, trackIndex, searched))) return false;
   Object.assign(state, { run: null, annotation: null, view: { kind: 'song' }, selection: [], draggedBeats: null });
@@ -372,6 +393,7 @@ async function openFile(path, trackIndex = 0, searched = []) {
  *   keepAnnotation: Keep the open annotation (a run on the same passage as it).
  */
 async function showRun(path, keepAnnotation = false) {
+  if (inCatalogueMode()) setView('song', false);
   statusLabel.textContent = 'loading…';
   const response = await fetch(`/api/run?${new URLSearchParams({ path })}`);
   if (!response.ok) {
@@ -506,6 +528,105 @@ element('edit-button').onclick = startEditing;
 window.addEventListener('beforeunload', (event) => {
   if (state.annotation?.dirty) event.preventDefault();
 });
+
+// ---- Tab view / catalogue view ----
+
+/**
+ * Show the song view ('song') or the catalogue view ('catalogue'). They share one tab, fretboard and transport:
+ * the tab and fretboard move into the catalogue's player slot and back, and each view keeps what it showed.
+ *
+ * Args:
+ *   view: 'song' or 'catalogue'.
+ *   redraw: Draw the view's own score now (false when the caller draws something new straight after).
+ */
+function setView(view, redraw = true) {
+  const catalogueMode = view === 'catalogue';
+  if (catalogueMode !== inCatalogueMode()) {
+    if (catalogueMode) {
+      state.songSideView = state.view;
+      state.view = state.phrase ? { kind: 'phrase' } : null;
+    } else {
+      state.view = state.songSideView;
+      state.songSideView = null;
+    }
+    state.selection = [];
+    api.stop();
+    document.body.classList.toggle('catalogue-mode', catalogueMode);
+    (catalogueMode ? element('catalogue-player-slot') : element('main')).append(viewport, element('fretboard-panel'));
+  }
+  for (const button of document.querySelectorAll('#view-switch button')) {
+    button.setAttribute('aria-pressed', String(button.dataset.view === view));
+  }
+  // The mixer is for songs (the player's phrase is one track); the explorer only exists in the catalogue view
+  element('mixer-toggle').disabled = catalogueMode;
+  element('explorer-toggle').disabled = !catalogueMode;
+  if (catalogueMode) element('song-title').textContent = catalogueView.catalogueName() ?? 'Catalogue';
+  if (redraw) renderView();
+}
+
+/** Play a catalogue occurrence in the catalogue view's player, or empty it with null (catalogue_view.mjs calls this). */
+function showPhrase(phrase) {
+  state.phrase = phrase;
+  if (!inCatalogueMode()) return;
+  api.stop();
+  state.view = phrase ? { kind: 'phrase' } : null;
+  state.selection = [];
+  renderView();
+}
+for (const button of document.querySelectorAll('#view-switch button')) button.onclick = () => setView(button.dataset.view);
+
+/** Open a catalogue build from the Files tab; the Catalogue switch works from then on. True if it opened. */
+async function openCatalogue(folder) {
+  const opened = await catalogueView.openCatalogue(folder);
+  if (opened) element('view-switch').querySelector('[data-view=catalogue]').disabled = false;
+  return opened;
+}
+
+/**
+ * Open the song an occurrence comes from, in the tab view, and mark its phrase: from its first note's
+ * beat to its last note's, set as the playback range (loop on = it repeats) with the cursor at its start.
+ *
+ * Args:
+ *   occurrence: { gp_path, track_index, first_bar_index, first_onset_tick, last_bar_index, last_onset_tick }
+ *     (onset ticks = alphaTab's absolutePlaybackStart of those beats).
+ */
+async function openPhrase(occurrence) {
+  setView('song', false);  // the song is drawn fresh below
+  // Wait for the drawing of this song (its beats need a layout before they can be marked); earlier drawings don't count
+  let drawn;
+  const scoreBefore = api.score;
+  const whenDrawn = new Promise((resolve) => {
+    drawn = () => { if (api.score !== scoreBefore && api.score === state.song?.score) resolve(); };
+  });
+  api.postRenderFinished.on(drawn);
+  const opened = await openFile(occurrence.gp_path, occurrence.track_index);
+  if (opened) await whenDrawn;
+  api.postRenderFinished.off(drawn);
+  if (!opened) return;
+  const track = api.score.tracks[occurrence.track_index];
+  const startBeat = beatAt(track, occurrence.first_bar_index, occurrence.first_onset_tick);
+  const endBeat = beatAt(track, occurrence.last_bar_index, occurrence.last_onset_tick);
+  if (!startBeat || !endBeat || !api.tickCache) {
+    statusLabel.textContent = `couldn't find that phrase's notes (bar ${occurrence.first_bar_index + 1})`;
+    return;
+  }
+  const startTick = api.tickCache.getBeatStart(startBeat);
+  api.highlightPlaybackRange(startBeat, endBeat);
+  api.playbackRange = { startTick, endTick: api.tickCache.getBeatStart(endBeat) + endBeat.playbackDuration };
+  api.tickPosition = startTick;
+  api.scrollToCursor();
+  statusLabel.textContent = `phrase at bar ${occurrence.first_bar_index + 1} marked: play (or loop) plays just that`;
+}
+
+/** The beat of a track that starts at `onsetTick` in bar `barIndex` (a note, not a rest), or null. */
+function beatAt(track, barIndex, onsetTick) {
+  const bar = track?.staves[0].bars[barIndex];
+  for (const voice of bar?.voices ?? []) {
+    const beat = voice.beats.find((candidate) => !candidate.isRest && candidate.absolutePlaybackStart === onsetTick);
+    if (beat) return beat;
+  }
+  return null;
+}
 
 // ---- Sidebar, its tabs, the mixer drawer ----
 

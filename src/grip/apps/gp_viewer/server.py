@@ -4,7 +4,7 @@ annotate mode records how the player plays a passage (reference passages for cal
 The server listens on localhost; on a remote machine, forward the port (e.g. VS Code Remote-SSH).
 This file is the HTTP side only: config, the route table, and sending replies. Each job lives in its
 own module, free of HTTP: datasets.py (song / track search, GP files), storage.py (the storage browser),
-runs.py (optimiser + existing-tool runs), annotate.py (reference passages). The page itself (HTML,
+runs.py (optimiser + existing-tool runs), catalogue.py (the catalogue view), annotate.py (reference passages). The page itself (HTML,
 scripts, styles) lives in page/.
 Settings: configs/gp_viewer/server_v0.3.yaml.
 
@@ -29,6 +29,7 @@ from urllib.parse import parse_qs, quote, urlparse
 import yaml
 
 from grip.apps.gp_viewer.annotate import cut_passage, save_reference
+from grip.apps.gp_viewer.catalogue import CatalogueBuild, CatalogueShelf
 from grip.apps.gp_viewer.datasets import DatasetIndex, resolve_inside
 from grip.apps.gp_viewer.runs import find_run_file, load_run_view, optimise_passage
 from grip.apps.gp_viewer.storage import StorageIndex
@@ -99,10 +100,12 @@ def missing_folders(config: dict[str, Any]) -> list[str]:
 
 @dataclass(frozen=True, eq=False)  # eq=False: tables never compare
 class ViewerApp:
-    """What every request reads: the config, the dataset index and the storage index, made once at startup."""
+    """What every request reads: the config, the dataset index, the storage index and the open catalogue
+    builds, made once at startup."""
     config: dict[str, Any]
     datasets: DatasetIndex
     storage: StorageIndex
+    catalogues: CatalogueShelf
 
     @classmethod
     def load(cls, config: dict[str, Any]) -> "ViewerApp":
@@ -116,6 +119,7 @@ class ViewerApp:
             DatasetIndex.load(config["datasets"], [storage_root], gp_extensions),
             StorageIndex(storage_root, gp_extensions, browser["hidden_name_endings"], dataset_roots,
                          browser["index_max_age_seconds"]),
+            CatalogueShelf(storage_root, config["catalogue"]["builds_kept_open"]),
         )
 
     @property
@@ -226,6 +230,59 @@ def run_view(app: ViewerApp, params: dict[str, str]) -> dict[str, Any]:
     return load_run_view(path)
 
 
+def catalogue_build(app: ViewerApp, params: dict[str, str]) -> CatalogueBuild:
+    """The catalogue build the "build" parameter names (full path)."""
+    try:
+        return app.catalogues.open(params.get("build", ""))
+    except ValueError as error:
+        raise RouteError(HTTPStatus.NOT_FOUND, str(error)) from error
+
+
+def catalogue_summary(app: ViewerApp, params: dict[str, str]) -> dict[str, Any]:
+    """A catalogue build's name, settings and counts per length (see CatalogueBuild.summary)."""
+    return catalogue_build(app, params).summary()
+
+
+def catalogue_paths(app: ViewerApp, params: dict[str, str]) -> dict[str, Any]:
+    """One page of interval paths. Params: "build", "length" (empty = all), "members_only" ("1"), "query", "page"."""
+    length = params.get("length", "")
+    return catalogue_build(app, params).list_paths(
+        int(length) if length else None, params.get("members_only") == "1", params.get("query", ""),
+        int(params.get("page", 1)), app.config["catalogue"]["path_page_size"])
+
+
+def catalogue_path(app: ViewerApp, params: dict[str, str]) -> dict[str, Any]:
+    """One interval path: its layouts and family (see CatalogueBuild.path_detail). Params: "build", "path"."""
+    build = catalogue_build(app, params)
+    try:
+        return build.path_detail(params.get("path", ""))
+    except ValueError as error:
+        raise RouteError(HTTPStatus.NOT_FOUND, str(error)) from error
+
+
+def catalogue_entry(app: ViewerApp, params: dict[str, str]) -> dict[str, Any]:
+    """One layout: its family and where it turns up (see CatalogueBuild.entry_detail). Params: "build", "entry_id", "page"."""
+    build = catalogue_build(app, params)
+    entry_id, page = int(params.get("entry_id", "")), int(params.get("page", 1))  # not numbers → 400
+    try:
+        return build.entry_detail(entry_id, page, app.config["catalogue"]["occurrence_page_size"])
+    except ValueError as error:
+        raise RouteError(HTTPStatus.NOT_FOUND, str(error)) from error
+
+
+def catalogue_occurrence(app: ViewerApp, params: dict[str, str]) -> dict[str, Any]:
+    """One occurrence of a layout as a playable phrase (see CatalogueBuild.occurrence_phrase), on the Run
+    button's guitar. Params: "build", "entry_id", "index" (from 0)."""
+    build = catalogue_build(app, params)
+    entry_id, index = int(params.get("entry_id", "")), int(params.get("index", 0))  # not numbers → 400
+    guitar = load_guitar_setup(load_run_config(app.run_config_path)["guitar_setup"])
+    try:
+        return build.occurrence_phrase(entry_id, index, app.config["catalogue"]["player_tempo_bpm"],
+                                       guitar.highest_fret, guitar.scale_length_mm)
+    except ValueError as error:
+        raise RouteError(HTTPStatus.NOT_FOUND, str(error)) from error
+
+
 GET_ROUTES: dict[str, Callable[[ViewerApp, dict[str, str]], Any]] = {
     "/api/config": page_config,
     "/api/tracks": track_search,
@@ -234,6 +291,11 @@ GET_ROUTES: dict[str, Callable[[ViewerApp, dict[str, str]], Any]] = {
     "/api/storage": storage_folder,
     "/api/recent": recent_files,
     "/api/run": run_view,
+    "/api/catalogue": catalogue_summary,
+    "/api/catalogue/paths": catalogue_paths,
+    "/api/catalogue/path": catalogue_path,
+    "/api/catalogue/entry": catalogue_entry,
+    "/api/catalogue/occurrence": catalogue_occurrence,
 }
 
 

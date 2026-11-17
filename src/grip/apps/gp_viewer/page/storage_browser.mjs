@@ -1,13 +1,13 @@
 // GRIP viewer, storage browser (the sidebar's Files tab): the newest files anywhere in storage, and the
 // storage folder as on disk (breadcrumbs, subfolders, files newest first). Shows only what the viewer
-// opens: GP files, optimiser runs, existing-tool runs. viewer.mjs calls setupStorageBrowser once at start.
+// opens: GP files, optimiser runs, existing-tool runs, catalogue builds. viewer.mjs calls setupStorageBrowser once at start.
 
 // What viewer.mjs shares, set once by setupStorageBrowser
-let element, openFile, showRunFile, remember, recall, onOpened;
+let element, openFile, showRunFile, openCatalogue, remember, recall, onOpened;
 // The folder shown, relative to the storage root ("" = the root)
 let shownFolder = '';
 
-const KIND_LABELS = { gp: 'GP', optimiser_run: 'GRIP run', existing_tool_run: 'tool run' };
+const KIND_LABELS = { gp: 'GP', optimiser_run: 'GRIP run', existing_tool_run: 'tool run', catalogue: 'catalogue' };
 
 /**
  * Take what viewer.mjs shares, show the recent list and the last folder visited.
@@ -17,6 +17,7 @@ const KIND_LABELS = { gp: 'GP', optimiser_run: 'GRIP run', existing_tool_run: 't
 export function setupStorageBrowser(viewer) {
   ({ element, openFile, remember, recall } = viewer);
   showRunFile = viewer.showRunFile;
+  openCatalogue = viewer.openCatalogue;
   onOpened = viewer.onFileOpened;
   element('storage-refresh').onclick = (event) => {
     event.preventDefault();  // inside <summary>: don't fold the section
@@ -133,7 +134,8 @@ function fileRow(file, showFolderName) {
   item.append(rowMain(file.name, file.kind));
   if (meta) item.append(Object.assign(document.createElement('div'), { className: 'row-meta', textContent: meta }));
   item.onclick = async () => {
-    const opened = file.kind === 'gp' ? await openFile(file.path, 0) : await showRunFile(file.path);
+    const openers = { gp: (path) => openFile(path, 0), catalogue: openCatalogue };
+    const opened = await (openers[file.kind] ?? showRunFile)(file.path);
     if (!opened) return;
     for (const selected of document.querySelectorAll('.file-list li.selected')) selected.classList.remove('selected');
     item.classList.add('selected');

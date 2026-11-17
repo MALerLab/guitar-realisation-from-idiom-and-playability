@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GRIP viewer</title>
-<!-- Styles: viewer.css · script: viewer.mjs (imports annotate, file_picker, storage_browser, transport, fretboard, track_mixer, choices_to_tex) -->
+<!-- Styles: viewer.css · script: viewer.mjs (imports annotate, catalogue_view, file_picker, storage_browser, transport, fretboard, track_mixer, choices_to_tex) -->
 <link rel="stylesheet" href="/viewer.css">
 </head>
 <body>
@@ -20,6 +20,7 @@
   <symbol id="icon-loop" viewBox="0 0 24 24"><path d="M17 2l3 3-3 3M4 11V9a4 4 0 0 1 4-4h12M7 22l-3-3 3-3M20 13v2a4 4 0 0 1-4 4H4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="icon-fretboard" viewBox="0 0 24 24"><path d="M2 7h20M2 12h20M2 17h20M7 5v14M13 5v14M19 5v14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
   <symbol id="icon-mixer" viewBox="0 0 24 24"><path d="M6 3v18M12 3v18M18 3v18" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><rect x="3.5" y="13" width="5" height="3" rx="1" fill="currentColor"/><rect x="9.5" y="6" width="5" height="3" rx="1" fill="currentColor"/><rect x="15.5" y="10" width="5" height="3" rx="1" fill="currentColor"/></symbol>
+  <symbol id="icon-explorer" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3 13h18M7 16.5h4M13 16.5h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
   <symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="icon-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
 </svg>
@@ -33,6 +34,11 @@
       <select id="track-select" disabled title="Track (song view)"></select>
       <span id="tuning" title="Open strings of what is shown, lowest string first"></span>
     </span>
+  </div>
+  <!-- Song view / catalogue view (the catalogue one once a build is open) -->
+  <div id="view-switch" class="segmented" role="tablist">
+    <button type="button" data-view="song" aria-pressed="true">Song</button>
+    <button type="button" data-view="catalogue" aria-pressed="false" disabled title="Open a catalogue build from the Files tab">Catalogue</button>
   </div>
   <select id="realisation-select" disabled title="Realisation of the open run"></select>
   <span id="status"></span>
@@ -131,6 +137,63 @@
       </div>
     </section>
   </aside>
+
+  <!-- Catalogue view (catalogue_view.mjs): interval paths on the left, the picked path on the right -->
+  <section id="catalogue-view">
+    <div id="catalogue-paths-pane">
+      <div class="catalogue-filters">
+        <select id="catalogue-length" title="Notes per path"></select>
+        <label><input type="checkbox" id="catalogue-members-only"> members only</label>
+        <input type="search" id="catalogue-query" placeholder="Path contains… (e.g. 0 2 0, b, /)" spellcheck="false">
+        <!-- How interval paths read: semitones from the first note (as stored) or from the lowest note -->
+        <div id="interval-mode" class="segmented" title="How interval paths are written">
+          <button type="button" data-interval-mode="first" aria-pressed="true">0 = first note</button>
+          <button type="button" data-interval-mode="lowest" aria-pressed="false">0 = lowest note</button>
+        </div>
+        <div id="catalogue-line" class="hint"></div>
+      </div>
+      <div id="catalogue-path-count"></div>
+      <ul id="catalogue-path-list" class="file-list"></ul>
+      <div class="page-nav" id="catalogue-path-nav" hidden></div>
+    </div>
+    <!-- Drag to widen the paths pane: its tabs grow with it -->
+    <div id="catalogue-pane-divider" role="separator" aria-orientation="vertical" title="Drag to zoom the paths"></div>
+    <div id="catalogue-detail" class="empty">
+      <div id="catalogue-detail-header">
+        <button id="catalogue-back" type="button" disabled title="Back to the previous pick">◀ Back</button>
+        <span id="catalogue-title">Pick an interval path on the left</span>
+      </div>
+      <!-- The player: one real occurrence of the picked layout; the tab + fretboard move in here in the catalogue view -->
+      <div id="catalogue-player">
+        <div id="occurrence-stepper">
+          <button id="occurrence-previous" type="button" class="icon-button" disabled title="Previous occurrence">◀</button>
+          <span id="occurrence-label">Pick a layout to play one of its occurrences</span>
+          <button id="occurrence-next" type="button" class="icon-button" disabled title="Next occurrence">▶</button>
+          <button id="occurrence-open-song" type="button" disabled title="Open the whole song at this phrase (song view)">Open song</button>
+        </div>
+        <!-- Move the occurrence's shape: along the neck, or across strings with the notes' steps kept -->
+        <div id="shape-editor">
+          <span class="hint">shape</span>
+          <button id="shape-fret-down" type="button" disabled title="Whole shape one fret down the neck">◀ fret</button>
+          <button id="shape-fret-up" type="button" disabled title="Whole shape one fret up the neck">fret ▶</button>
+          <button id="shape-string-up" type="button" disabled title="Whole shape one string up (towards string 1), notes' steps kept">▲ string</button>
+          <button id="shape-string-down" type="button" disabled title="Whole shape one string down (towards the lowest string), notes' steps kept">▼ string</button>
+          <button id="shape-reset" type="button" disabled title="Back to the occurrence as played">Reset</button>
+          <span id="shape-status"></span>
+        </div>
+        <div id="catalogue-player-slot"></div>
+      </div>
+      <!-- Catalogue explorer: layouts, related paths / layouts, where it turns up; toggled from the transport bar, drag to resize -->
+      <div id="catalogue-explorer-divider" role="separator" aria-orientation="horizontal" title="Drag to resize the explorer"></div>
+      <div id="catalogue-explorer">
+        <div id="catalogue-layouts"></div>
+        <div id="catalogue-bottom">
+          <div id="catalogue-family"></div>
+          <div id="catalogue-occurrences"></div>
+        </div>
+      </div>
+    </div>
+  </section>
 </div>
 
 <!-- Transport bar (transport.mjs): playback, position, loop, speed, drawers -->
@@ -153,6 +216,7 @@
     </select>
     <button id="fretboard-toggle" class="icon-button" aria-pressed="false" title="Fretboard"><svg><use href="#icon-fretboard"/></svg></button>
     <button id="mixer-toggle" class="icon-button" aria-pressed="false" title="Mixer"><svg><use href="#icon-mixer"/></svg></button>
+    <button id="explorer-toggle" class="icon-button" aria-pressed="true" disabled title="Catalogue explorer (catalogue view)"><svg><use href="#icon-explorer"/></svg></button>
   </div>
 </footer>
 

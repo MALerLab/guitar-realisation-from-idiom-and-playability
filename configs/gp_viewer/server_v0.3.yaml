@@ -2,7 +2,7 @@
 # how alphaTab reads files.
 # Read by src/grip/apps/gp_viewer/server.py. Paths are relative to the repo root unless they start with ~ or /.
 # v0.2: one dataset → a list of datasets (DadaGP, GOAT, ProgGP), each with its own folder and manifests.
-# v0.3: storage browser (storage_root + browser section) replaces the flat runs folder.
+# v0.3: storage browser (storage_root + browser section) replaces the flat runs folder; catalogue view.
 version: "0.3"
 
 server:
@@ -57,6 +57,16 @@ browser:
   recent_count: 30
   # Files never shown: DadaGP's token re-saves (PROJECT.md gotcha: read the original gp3/gp4/gp5)
   hidden_name_endings: [.gp2tokens2gp.gp5]
+
+catalogue:
+  # Interval paths per page in the catalogue view's list
+  path_page_size: 200
+  # Places an entry turns up, per page
+  occurrence_page_size: 50
+  # Catalogue builds kept open at once (each holds its entry table in memory)
+  builds_kept_open: 3
+  # Tempo an occurrence plays at in the catalogue player (the catalogue tables keep no tempo)
+  player_tempo_bpm: 100
 
 gp_files:
   # Extensions the file endpoint will serve
