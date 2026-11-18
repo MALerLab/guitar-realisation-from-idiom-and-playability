@@ -726,6 +726,57 @@ function showSidebarTab(name) {
 for (const tab of document.querySelectorAll('.tabs .tab')) tab.onclick = () => showSidebarTab(tab.dataset.tab);
 showSidebarTab(recall('sidebarTab', 'storage'));
 
+/** Hide or show the right column (note panel, mixer); remembered. */
+function setRightColumnHidden(hidden) {
+  document.body.classList.toggle('right-collapsed', hidden);
+  element('right-column-toggle').setAttribute('aria-pressed', String(!hidden));
+  remember('rightColumnHidden', hidden ? '1' : '0');
+  if (api.score) api.render();  // the tab's width changed
+}
+element('right-column-toggle').onclick = () => setRightColumnHidden(!document.body.classList.contains('right-collapsed'));
+document.body.classList.toggle('right-collapsed', recall('rightColumnHidden', '0') === '1');
+element('right-column-toggle').setAttribute('aria-pressed', String(recall('rightColumnHidden', '0') !== '1'));
+
+// Smallest side panel width (px), and the share of the window a side panel may take at most
+const SIDE_PANEL_MIN_WIDTH = 200;
+const SIDE_PANEL_MAX_SHARE = 0.6;
+
+/**
+ * Drag a side panel's inner edge to set its width (remembered); the tab is laid out again once the drag ends.
+ *
+ * Args:
+ *   panel: The panel element.
+ *   divider: The edge to drag (sits between the panel and the tab).
+ *   grows: +1 if dragging right widens the panel (left sidebar), -1 if dragging left does (right column).
+ *   name: Name the width is remembered under.
+ */
+function setupSideDivider(panel, divider, grows, name) {
+  const setWidth = (width) => {
+    panel.style.width = `${Math.min(Math.max(width, SIDE_PANEL_MIN_WIDTH), window.innerWidth * SIDE_PANEL_MAX_SHARE)}px`;
+  };
+  const remembered = recall(name, null);
+  if (remembered) setWidth(Number(remembered));
+  let startX = null;
+  let startWidth = null;
+  divider.onpointerdown = (event) => {
+    divider.setPointerCapture(event.pointerId);
+    divider.classList.add('dragging');
+    startX = event.clientX;
+    startWidth = panel.offsetWidth;
+  };
+  divider.onpointermove = (event) => { if (startX !== null) setWidth(startWidth + grows * (event.clientX - startX)); };
+  divider.onpointerup = () => {
+    if (startX === null) return;
+    startX = null;
+    divider.classList.remove('dragging');
+    remember(name, String(panel.offsetWidth));
+    if (api.score) api.render();
+  };
+  divider.onpointercancel = divider.onpointerup;
+}
+setupSideDivider(element('sidebar'), element('sidebar-divider'), 1, 'sidebarWidth');
+setupSideDivider(element('right-column'), element('right-column-divider'), -1, 'rightColumnWidth');
+
 /** Open or close the mixer drawer; remembered. */
 function setMixerOpen(open) {
   document.body.classList.toggle('mixer-open', open);
@@ -733,7 +784,12 @@ function setMixerOpen(open) {
   remember('mixerOpen', open ? '1' : '0');
   if (api.score) api.render();  // the tab's width changed
 }
-element('mixer-toggle').onclick = () => setMixerOpen(!document.body.classList.contains('mixer-open'));
+element('mixer-toggle').onclick = () => {
+  const opening = !document.body.classList.contains('mixer-open');
+  // Opening the mixer brings a hidden right column back
+  if (opening && document.body.classList.contains('right-collapsed')) setRightColumnHidden(false);
+  setMixerOpen(opening);
+};
 setMixerOpen(recall('mixerOpen', '0') === '1');
 
 // A clicked button gives focus back, so Space always means play / pause

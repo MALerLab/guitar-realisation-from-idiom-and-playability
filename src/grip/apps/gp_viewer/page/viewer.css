@@ -181,6 +181,12 @@ body:not(.has-score) #score, body:not(.has-score) #selection-boxes, body:not(.ha
 /* Right column: note panel (passage shown) + mixer drawer (toggled) */
 #right-column { width: 300px; display: none; flex-direction: column; background: var(--panel); border-left: 1px solid var(--border); min-height: 0; }
 body.details-open #right-column, body.mixer-open #right-column { display: flex; }
+/* Side panels: a hide button each, widths set by dragging their inner edge (side-divider) */
+body.right-collapsed #right-column { display: none !important; }
+.side-divider { flex: none; width: 6px; margin: 0 -3px; cursor: col-resize; position: relative; z-index: 2; touch-action: none; display: none; }
+.side-divider:hover, .side-divider.dragging { background: var(--accent); opacity: 0.6; }
+body:not(.sidebar-hidden) #sidebar-divider { display: block; }
+body:is(.details-open, .mixer-open):not(.right-collapsed):not(.catalogue-mode) #right-column-divider { display: block; }
 #note-panel { flex: 1; overflow-y: auto; padding: 12px; display: none; }
 body.details-open #note-panel { display: block; }
 #note-panel h2 { font-size: 15px; margin: 0 0 8px; }

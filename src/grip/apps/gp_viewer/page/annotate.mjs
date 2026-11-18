@@ -242,17 +242,46 @@ function select(indices) {
   updateFretboard();
 }
 
-/** Click and drag on the tab: a press, moves, and a release, each on a beat. */
+// Song view: where the last plain click or drag started; a shift-click spans whole bars from it
+let barAnchorBeat = null;
+
+/** Click and drag on the tab: a press, moves, and a release, each on a beat. Shift-click in the song view = bars
+ *  from the last click to this one. */
 function setupSelecting() {
   let dragStartBeat = null;
   let dragEndBeat = null;
+  let shiftHeld = false;
+  // Capture phase: read Shift before alphaTab handles the press
+  element('viewport').addEventListener('pointerdown', (event) => { shiftHeld = event.shiftKey; }, true);
   api.beatMouseDown.on((beat) => { dragStartBeat = beat; dragEndBeat = beat; });
   api.beatMouseMove.on((beat) => { if (dragStartBeat) dragEndBeat = beat; });
   api.beatMouseUp.on((beat) => {
     if (!dragStartBeat) return;
-    finishDrag(dragStartBeat, beat ?? dragEndBeat);
+    const endBeat = beat ?? dragEndBeat;
+    const anchorInThisSong = barAnchorBeat?.voice.bar.staff.track.score === api.score;
+    if (shiftHeld && state.view?.kind === 'song' && anchorInThisSong && endBeat === dragStartBeat) selectBarsBetween(barAnchorBeat, endBeat);
+    else finishDrag(dragStartBeat, endBeat);
     dragStartBeat = null;
   });
+}
+
+/** Song view shift-click: every bar from the anchor's to the clicked beat's, marked as the playback range and put in the bar boxes. */
+function selectBarsBetween(anchorBeat, clickedBeat) {
+  const [firstIndex, lastIndex] = [anchorBeat, clickedBeat].map((beat) => beat.voice.bar.index).sort((x, y) => x - y);
+  const staffBars = clickedBeat.voice.bar.staff.bars;
+  const startBeat = staffBars[firstIndex].voices[0].beats[0];
+  const endBeat = staffBars[lastIndex].voices[0].beats.at(-1);
+  element('first-bar').value = firstIndex + 1;
+  element('last-bar').value = lastIndex + 1;
+  api.highlightPlaybackRange(startBeat, endBeat);
+  if (api.tickCache) {
+    const startTick = api.tickCache.getBeatStart(startBeat);
+    api.playbackRange = { startTick, endTick: api.tickCache.getBeatStart(endBeat) + endBeat.playbackDuration };
+    api.tickPosition = startTick;
+  }
+  statusLabel.textContent = `bars ${firstIndex + 1}–${lastIndex + 1} chosen`;
+  state.draggedBeats = { first: startBeat, last: endBeat };
+  updateFretboard();
 }
 
 /** A click or drag from beat `a` to beat `b`: fills the bar boxes and marks the beats on the fretboard (song view), or selects notes (passage). */
@@ -261,8 +290,9 @@ function finishDrag(a, b) {
     const bars = [a, b].map((beat) => beat.voice.bar.index + 1).sort((x, y) => x - y);
     element('first-bar').value = bars[0];
     element('last-bar').value = bars[1];
-    statusLabel.textContent = `bars ${bars[0]}–${bars[1]} chosen`;
+    statusLabel.textContent = `bars ${bars[0]}–${bars[1]} chosen (shift-click another bar to span to it)`;
     state.draggedBeats = { first: a, last: b };
+    barAnchorBeat = a;
     updateFretboard();
     return;
   }
