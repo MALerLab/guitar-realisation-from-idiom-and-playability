@@ -38,8 +38,9 @@ membership:
 
 output:
   # Builds go to <builds_dir>/catalogue_v<version>_<yymmdd>_<build_name>/; data/catalogue links to
-  # ~/storage/grip/catalogue (musical content: never in git)
-  builds_dir: data/catalogue
+  # ~/storage/grip/catalogue (musical content: never in git). One subfolder per mining method:
+  # data/catalogue/<method>/ (freq-ngram here; bpe for BPE runs)
+  builds_dir: data/catalogue/freq-ngram
   build_name: dadagp_rough
 
 runtime:
