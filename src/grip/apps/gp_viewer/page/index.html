@@ -25,7 +25,7 @@
   <symbol id="icon-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
 </svg>
 
-<!-- Top bar: what is open, what is shown, and the Run / Edit / Save actions -->
+<!-- Top bar: what is open, what is shown, and the Optimise / Stitch / Edit / Save actions -->
 <header id="topbar">
   <button id="sidebar-toggle" class="icon-button" title="Hide / show the files"><svg><use href="#icon-menu"/></svg></button>
   <div id="title-block">
@@ -43,8 +43,8 @@
   <select id="realisation-select" disabled title="Realisation of the open run"></select>
   <span id="status"></span>
   <div class="popover-anchor">
-    <button id="run-toggle" class="primary" disabled title="Run the optimiser on some bars">Run <svg class="chevron"><use href="#icon-chevron"/></svg></button>
-    <!-- Run settings: drag over bars in the tab to fill the bar boxes -->
+    <button id="run-toggle" class="primary" disabled title="Run the optimiser (hand models) on some bars">Optimise <svg class="chevron"><use href="#icon-chevron"/></svg></button>
+    <!-- Optimise settings: drag over bars in the tab to fill the bar boxes (Stitch uses the same bars) -->
     <div id="run-popover" class="popover" hidden>
       <div class="popover-grid">
         <label>First bar <input type="number" id="first-bar" min="1"></label>
@@ -55,7 +55,27 @@
         <label title="How many realisations">Realisations (k) <input type="number" id="k-best" min="1"></label>
       </div>
       <p class="hint">Tip: drag over bars in the tab to fill the bar boxes.</p>
-      <button id="run-button" class="primary wide" disabled>Run optimiser</button>
+      <button id="run-button" class="primary wide" disabled>Optimise</button>
+    </div>
+  </div>
+  <!-- Stitch (stitch.mjs): rebuild the same bars out of one catalogue build's entries -->
+  <div class="popover-anchor">
+    <button id="stitch-toggle" class="stitch" disabled title="Rebuild the bars out of one catalogue's entries">Stitch <svg class="chevron"><use href="#icon-chevron"/></svg></button>
+    <div id="stitch-popover" class="popover" hidden>
+      <div class="popover-grid">
+        <label>First bar <input type="number" id="stitch-first-bar" min="1"></label>
+        <label>Last bar <input type="number" id="stitch-last-bar" min="1"></label>
+        <label>Voice <input type="number" id="stitch-voice" min="0" value="0"></label>
+        <label title="Retune every string by N semitones, pitches kept (notes only places blocks on this guitar)">Tuning shift <input type="number" id="stitch-tuning-shift" value="0"></label>
+      </div>
+      <p class="hint">Tip: drag over bars in the tab to fill the bar boxes.</p>
+      <label class="popover-field">Catalogue <select id="stitch-build"></select></label>
+      <div id="stitch-mode" class="segmented" title="Where a block may sit">
+        <button type="button" data-mode="position" aria-pressed="true" title="A block counts only on the tab's own strings and frets">position preserved</button>
+        <button type="button" data-mode="notes" aria-pressed="false" title="A block may sit wherever its notes fit: Stitch picks string + fret">notes only</button>
+      </div>
+      <label class="check"><input type="checkbox" id="stitch-members-only"> members only</label>
+      <button id="stitch-button" class="stitch wide" disabled>Stitch</button>
     </div>
   </div>
   <button id="edit-button" disabled title="Annotate: start from what is shown">Edit</button>
@@ -114,7 +134,7 @@
         <strong>Nothing open yet</strong>
         <span>Pick a file on the left: recent runs, the storage folders, or the datasets.</span>
       </div>
-      <div id="score"></div><div id="selection-boxes"></div>
+      <div id="score"></div><div id="selection-boxes"></div><div id="stitch-boxes"></div>
     </div>
     <!-- Fretboard drawer (fretboard.mjs), opened from the transport bar -->
     <div id="fretboard-panel" class="drawer" hidden>

@@ -71,10 +71,10 @@ class CatalogueBuild:
         return "read_parquet('" + str(self.folder / relative).replace("'", "''") + "')"
 
     def load_entries(self) -> pd.DataFrame:
-        """Every kept layout with its membership marks and family links, indexed by entry id."""
+        """Every kept layout with its membership marks, family links and key (for stitching), indexed by entry id."""
         entries = self.query(
             f"SELECT c.entry_id, c.length, c.interval_path, c.layout, c.song_count, c.occurrence_count, "
-            f"c.prefix_entry_id, c.suffix_entry_id, m.is_member, m.is_fragment, m.fragment_of "
+            f"c.prefix_entry_id, c.suffix_entry_id, m.is_member, m.is_fragment, m.fragment_of, c.key "
             f"FROM {self.parquet('counts/*.parquet')} c JOIN {self.parquet('membership.parquet')} m USING (entry_id)"
         )
         for column in ("prefix_entry_id", "suffix_entry_id", "fragment_of"):

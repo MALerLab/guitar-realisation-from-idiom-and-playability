@@ -1,10 +1,11 @@
 // GRIP viewer, main script: alphaTab, the page state, drawing what is shown, the top bar
-// (tracks, realisations, Run pop-up, Edit), the sidebar and drawers, and opening songs (GP files) and runs.
+// (tracks, realisations, Optimise pop-up, Edit), the sidebar and drawers, and opening songs (GP files) and runs.
 // The other files each get what they need from here through one `viewer` object when the page starts:
 //   annotate.mjs         note panel, selecting notes, the edit keys, the Save box
 //   catalogue_view.mjs   the catalogue view: interval paths, layouts, their family, where they turn up
 //   file_picker.mjs      path box, the Datasets tab (songs / tracks search)
 //   flags.mjs            junk flags: the flag box (song view's top bar, catalogue player)
+//   stitch.mjs           the Stitch pop-up, and its block boxes + uncovered notes on the tab
 //   storage_browser.mjs  the Files tab: recent files + the storage folder as on disk
 //   transport.mjs        the transport bar: play / pause, bars, scrub, loop, speed, their keys
 //   fretboard.mjs        the fretboard drawer, and the tuning label's text
@@ -17,6 +18,7 @@ import { setupCatalogueView } from '/catalogue_view.mjs';
 import { setupFilePicker } from '/file_picker.mjs';
 import { setupFlags } from '/flags.mjs';
 import { setupFretboard, tuningText } from '/fretboard.mjs';
+import { setupStitch } from '/stitch.mjs';
 import { setupStorageBrowser } from '/storage_browser.mjs';
 import { setupTrackMixer } from '/track_mixer.mjs';
 import { setupTransport } from '/transport.mjs';
@@ -51,7 +53,8 @@ fileSettings.importer.encoding = pageConfig.text_encoding;
 const state = {
   song: null,         // the open song (GP file): { path, trackIndex, score, mixer (track_mixer.mjs: track index → sound settings) }
   songFlags: {},      // the open song's junk flags: track index (as text) → flag
-  run: null,          // the open run (optimiser or existing tool): { path, name, kind, label, run: { source, passage, realisations }, positions }
+  run: null,          // the open run (optimiser, existing tool or stitch): { path, name, kind, label, run: { source, passage, realisations }, positions,
+                      //   stitch (kind 'stitch' only: { build, mode, members_only, blocks, uncovered }) }
   annotation: null,   // { settings, passage, positions, choices, startChoices, startedFrom, dirty, report }
   phrase: null,       // the catalogue player's occurrence: { passage, choices, positions, label }
   songSideView: null, // the song view's `view`, kept while the catalogue view shows (they share one tab)
@@ -229,6 +232,7 @@ const viewer = {
   element, statusLabel, api, state, pageConfig, postJson, remember, recall,
   renderView, shownPassage, choicesDiffer, changedFromStart, currentBeatMap, updateDropdowns, openFile, showTrack,
   showRunFile, onFileOpened, openCatalogue, openPhrase, setView, showPhrase,
+  readSettings, sameSettings, confirmDiscardAnnotation, openRunView, openCatalogueEntry, buildBeatMap,
 };
 const flags = setupFlags(viewer);
 // The catalogue player flags tracks too
@@ -241,6 +245,7 @@ const mixer = setupTrackMixer(viewer);
 const transport = setupTransport(viewer);
 const filePicker = setupFilePicker(viewer);
 const catalogueView = setupCatalogueView(viewer);
+const stitch = setupStitch(viewer);
 const storageBrowser = setupStorageBrowser(viewer);
 
 // ---- Drawing ----
@@ -263,9 +268,10 @@ function renderView(keepScroll = false) {
     let trackName;
     if (editing) trackName = `annotation (from ${state.annotation.startedFrom})`;
     else if (state.view.kind === 'phrase') trackName = shown.label;
-    else trackName = `${state.run.label} #${shown.realisation.rank} · cost ${shown.realisation.total_cost.toFixed(2)}`;
+    else trackName = realisationLabel(shown.realisation);
     const score = alphaTab.importer.ScoreLoader.loadAlphaTex(choicesToTex(shown.passage, choices, shown.passage.name, trackName), new alphaTab.Settings());
     if (editing) colourChangedNotes(score);
+    else stitch.colourUncovered(score);
     api.renderScore(score, [0]);
   }
   if (!keepScroll) transport.resetPosition();
@@ -301,12 +307,22 @@ function colourChangedNotes(score) {
   });
 }
 
-api.renderStarted.on(() => element('selection-boxes').replaceChildren());
+api.renderStarted.on(() => {
+  element('selection-boxes').replaceChildren();
+  element('stitch-boxes').replaceChildren();
+});
 api.postRenderFinished.on(() => {
   if (pendingScrollTop !== null) viewport.scrollTop = pendingScrollTop;
   pendingScrollTop = null;
   annotate.drawSelectionBoxes();
+  stitch.drawBlockBoxes();
 });
+
+/** A realisation's name in the dropdown and over the tab: the run's label, its rank and cost (a stitch has neither). */
+function realisationLabel(realisation) {
+  if (state.run.kind === 'stitch') return state.run.label;
+  return `${state.run.label} #${realisation.rank} · cost ${realisation.total_cost.toFixed(2)}`;
+}
 
 function updateTitle() {
   if (document.body.classList.contains('catalogue-mode')) return;
@@ -332,7 +348,7 @@ function updateDropdowns() {
 
   const options = [new Option('---', '')];
   for (const realisation of state.run?.run.realisations ?? []) {
-    options.push(new Option(`${state.run.label} #${realisation.rank} · cost ${realisation.total_cost.toFixed(2)}`, `rank:${realisation.rank}`));
+    options.push(new Option(realisationLabel(realisation), `rank:${realisation.rank}`));
   }
   if (state.annotation) {
     options.push(new Option(`✎ annotation${state.annotation.dirty ? ' (unsaved)' : ''} — from ${state.annotation.startedFrom}`, 'annotation'));
@@ -345,9 +361,8 @@ function updateDropdowns() {
 }
 
 function updateButtons() {
-  element('run-button').disabled = !state.song;
-  element('run-toggle').disabled = !state.song;
-  if (!state.song) element('run-popover').hidden = true;
+  for (const id of ['run-button', 'run-toggle', 'stitch-button', 'stitch-toggle']) element(id).disabled = !state.song;
+  if (!state.song) closePopovers();
   element('edit-button').disabled = !(state.view?.kind === 'song' || state.view?.kind === 'realisation');
   element('save-button').disabled = !state.annotation;
   flags.showFlagButton(element('flag-button'), state.songFlags[String(state.song?.trackIndex)], state.view?.kind === 'song');
@@ -424,7 +439,18 @@ async function showRun(path, keepAnnotation = false) {
     statusLabel.textContent = `server: ${response.status} ${response.statusText}`;
     return false;
   }
-  const view = await response.json();
+  return openRunView(await response.json(), keepAnnotation);
+}
+
+/**
+ * Show a run view (from /api/run, or a stitch from /api/stitch): open its GP file if needed and show realisation #1.
+ * True if it opened.
+ *
+ * Args:
+ *   view: { path (null for a stitch), name, kind, label, source, passage, realisations, positions, stitch? }.
+ *   keepAnnotation: Keep the open annotation (a run on the same passage as it).
+ */
+async function openRunView(view, keepAnnotation = false) {
   const source = view.source;
   if (source.gp && state.song?.path !== source.gp) {
     if (!(await loadSong(source.gp, source.track))) return false;
@@ -439,6 +465,7 @@ async function showRun(path, keepAnnotation = false) {
   state.run = {
     path: view.path, name: view.name, kind: view.kind, label: view.label,
     run: { source, passage: view.passage, realisations: view.realisations }, positions: view.positions,
+    stitch: view.stitch ?? null,
   };
   fillRunBar(settingsFromSource(source), source.k_best);
   state.view = { kind: 'realisation', rank: 1 };
@@ -500,13 +527,27 @@ async function runOptimiser() {
 }
 element('run-button').onclick = runOptimiser;
 
-// Run pop-up: opens under its button; Esc or a click elsewhere closes it
-element('run-toggle').onclick = () => { element('run-popover').hidden = !element('run-popover').hidden; };
+// Optimise and Stitch pop-ups: each opens under its button (closing the other); Esc or a click elsewhere closes them
+function closePopovers() {
+  element('run-popover').hidden = true;
+  element('stitch-popover').hidden = true;
+}
+element('run-toggle').onclick = () => {
+  const opening = element('run-popover').hidden;
+  closePopovers();
+  element('run-popover').hidden = !opening;
+};
+element('stitch-toggle').onclick = () => {
+  const opening = element('stitch-popover').hidden;
+  closePopovers();
+  element('stitch-popover').hidden = !opening;
+  if (opening) stitch.openPopover();
+};
 document.addEventListener('pointerdown', (event) => {
-  if (!event.target.closest('.popover-anchor')) element('run-popover').hidden = true;
+  if (!event.target.closest('.popover-anchor')) closePopovers();
 });
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape') element('run-popover').hidden = true;
+  if (event.key === 'Escape') closePopovers();
 });
 
 /** Start an annotation from what is shown: a realisation (its choices) or the GP file (the tab's own marks). */
@@ -604,6 +645,13 @@ async function openCatalogue(folder) {
   const opened = await catalogueView.openCatalogue(folder);
   if (opened) element('view-switch').querySelector('[data-view=catalogue]').disabled = false;
   return opened;
+}
+
+/** Open one entry of a catalogue build in the catalogue view (a Stitch block's badge): the build first if it isn't open. */
+async function openCatalogueEntry(folder, intervalPath, entryId) {
+  if (catalogueView.openBuild() !== folder && !(await openCatalogue(folder))) return;
+  setView('catalogue');
+  await catalogueView.pickEntry(intervalPath, entryId);
 }
 
 /**

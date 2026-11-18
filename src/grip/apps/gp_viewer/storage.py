@@ -198,6 +198,11 @@ class StorageIndex:
         return {"folder": folder, "root": str(self.root), "folders": subfolders,
                 "files": [file.as_row(self.root) for file in files]}
 
+    def catalogue_builds(self) -> list[dict[str, Any]]:
+        """Every catalogue build under the root, newest first (Stitch picks one)."""
+        builds = [file for files in self.snapshot().files_by_folder.values() for file in files if file.kind == "catalogue"]
+        return [file.as_row(self.root) for file in sorted(builds, key=lambda file: -file.modified)]
+
     def recent(self, count: int) -> list[dict[str, Any]]:
         """The newest openable files outside the dataset folders, newest first."""
         return [file.as_row(self.root) for file in self.snapshot().recent[:count]]

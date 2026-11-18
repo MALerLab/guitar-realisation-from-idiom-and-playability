@@ -5,7 +5,7 @@ The server listens on localhost; on a remote machine, forward the port (e.g. VS 
 This file is the HTTP side only: config, the route table, and sending replies. Each job lives in its
 own module, free of HTTP: datasets.py (song / track search, GP files), storage.py (the storage browser),
 runs.py (optimiser + existing-tool runs), catalogue.py (the catalogue view), flags.py (junk flags),
-annotate.py (reference passages). The page itself (HTML,
+annotate.py (reference passages), stitch.py (Stitch). The page itself (HTML,
 scripts, styles) lives in page/.
 Settings: configs/gp_viewer/server_v0.3.yaml.
 
@@ -34,6 +34,7 @@ from grip.apps.gp_viewer.catalogue import CatalogueBuild, CatalogueShelf
 from grip.apps.gp_viewer.datasets import DatasetIndex, resolve_inside
 from grip.apps.gp_viewer.flags import FlagStore
 from grip.apps.gp_viewer.runs import find_run_file, load_run_view, optimise_passage
+from grip.apps.gp_viewer.stitch import stitch_passage
 from grip.apps.gp_viewer.storage import StorageIndex
 from grip.core.guitar import load_guitar_setup
 from grip.core.paths import repo_root
@@ -259,6 +260,11 @@ def catalogue_build(app: ViewerApp, params: dict[str, str]) -> CatalogueBuild:
         raise RouteError(HTTPStatus.NOT_FOUND, str(error)) from error
 
 
+def catalogue_builds(app: ViewerApp, params: dict[str, str]) -> list[dict[str, Any]]:
+    """Every catalogue build in the storage folder, newest first (the Stitch pop-up's choice)."""
+    return app.storage.catalogue_builds()
+
+
 def catalogue_summary(app: ViewerApp, params: dict[str, str]) -> dict[str, Any]:
     """A catalogue build's name, settings and counts per length (see CatalogueBuild.summary)."""
     return catalogue_build(app, params).summary()
@@ -333,6 +339,7 @@ GET_ROUTES: dict[str, Callable[[ViewerApp, dict[str, str]], Any]] = {
     "/api/recent": recent_files,
     "/api/run": run_view,
     "/api/catalogue": catalogue_summary,
+    "/api/catalogue/builds": catalogue_builds,
     "/api/catalogue/paths": catalogue_paths,
     "/api/catalogue/path": catalogue_path,
     "/api/catalogue/entry": catalogue_entry,
@@ -346,6 +353,13 @@ GET_ROUTES: dict[str, Callable[[ViewerApp, dict[str, str]], Any]] = {
 def optimise(app: ViewerApp, body: dict[str, Any]) -> dict[str, str]:
     """Run the optimiser on a passage and save the run; answers the run file's full path (see runs.optimise_passage)."""
     return {"path": str(optimise_passage(body, app.datasets, app.run_config_path))}
+
+
+def stitch(app: ViewerApp, body: dict[str, Any]) -> dict[str, Any]:
+    """Stitch a passage out of one catalogue build's entries (see stitch.stitch_passage); body = passage
+    settings + "build" (full path), "mode", "members_only". Nothing is saved."""
+    return stitch_passage(body, catalogue_build(app, {"build": str(body.get("build", ""))}), app.datasets,
+                          app.run_config_path)
 
 
 def passage_for_annotating(app: ViewerApp, body: dict[str, Any]) -> dict[str, Any]:
@@ -384,6 +398,7 @@ def set_flags(app: ViewerApp, body: dict[str, Any]) -> dict[str, Any]:
 
 POST_ROUTES: dict[str, Callable[[ViewerApp, dict[str, Any]], Any]] = {
     "/api/optimise": optimise,
+    "/api/stitch": stitch,
     "/api/passage": passage_for_annotating,
     "/api/reference": reference,
     "/api/flags": set_flags,

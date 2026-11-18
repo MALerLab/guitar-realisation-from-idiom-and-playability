@@ -48,7 +48,7 @@ let intervalMode = 'first';  // interval paths from the 'first' note (as stored)
 /**
  * Take what viewer.mjs shares and wire the filters, the pane divider, the player's stepper and the back button.
  *
- * Returns { openCatalogue, catalogueName }.
+ * Returns { openCatalogue, catalogueName, openBuild (the open build's folder), pickEntry (path, entry id) }.
  */
 export function setupCatalogueView(viewer) {
   ({ element, remember, recall, statusLabel, openPhrase, setView, showPhrase, openFlagBox, showFlagButton } = viewer);
@@ -79,7 +79,10 @@ export function setupCatalogueView(viewer) {
   // Refit the small tabs whenever their space changes size
   const refit = new ResizeObserver(() => fitAllTabs());
   for (const id of ['catalogue-paths-pane', 'catalogue-explorer']) refit.observe(element(id));
-  return { openCatalogue, catalogueName: () => catalogue.summary?.name ?? null };
+  return {
+    openCatalogue, catalogueName: () => catalogue.summary?.name ?? null, openBuild: () => catalogue.build,
+    pickEntry: (intervalPath, entryId) => pickPath(intervalPath, entryId),
+  };
 }
 
 // ---- Drawing layouts as small tabs, always in full ----
