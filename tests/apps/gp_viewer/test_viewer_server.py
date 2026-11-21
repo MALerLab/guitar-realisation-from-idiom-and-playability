@@ -25,7 +25,7 @@ from grip.core.paths import repo_root
 
 REPO_ROOT = repo_root()
 TOY_DATASET_ROOT = REPO_ROOT / "externals/parsers/alphaTab/packages/alphatab/test-data/guitarpro5"
-RUN_CONFIG = REPO_ROOT / "configs/optimiser/optimiser_run_v1.1.yaml"
+RUN_CONFIG = REPO_ROOT / "configs/optimiser/optimiser_run_v1.2.yaml"
 STARTUP_TIMEOUT_SECONDS = 30
 # A real GP file in the toy dataset: bar 2 ends with a single-note hammer-on
 TOY_GP_FILE = "hammer.gp5"
@@ -152,6 +152,7 @@ def viewer(tmp_path_factory) -> dict[str, Any]:
     storage = folder / "storage"
     write_toy_storage(storage)
     alphatab_dist = folder / "alphatab_dist"
+    (folder / "presets").mkdir()
     (alphatab_dist / "soundfont").mkdir(parents=True)
     (alphatab_dist / "alphaTab.mjs").write_text("export const stub = 1;")
     port = free_port()
@@ -162,7 +163,8 @@ def viewer(tmp_path_factory) -> dict[str, Any]:
                              "songs_manifest": str(songs_path)}},
         "paths": {"storage_root": str(storage), "optimiser_run_config": str(RUN_CONFIG),
                   "reference_set_folder": str(folder / "reference_set"), "alphatab_dist": str(alphatab_dist),
-                  "flags_file": str(folder / "flags/track_flags.json")},
+                  "flags_file": str(folder / "flags/track_flags.json"),
+                  "optimiser_presets_folder": str(folder / "presets")},
         "alphatab": {"text_encoding": "windows-1252", "soundfont": "soundfont/sonivox.sf2"},
         "browse_list": {"page_size": 2},
         "browser": {"index_max_age_seconds": 0, "recent_count": 10, "hidden_name_endings": [".gp2tokens2gp.gp5"]},
@@ -474,6 +476,60 @@ def test_reference_dry_run_suggests_a_name_and_writes_nothing(viewer):
     assert not (viewer["folder"] / "reference_set").exists()
 
 
+# ---- Optimiser view: cost knobs, lr-knob sweep, presets ----
+
+def test_cost_knobs_are_the_cost_config_as_read(viewer):
+    status, _, body, _ = get(viewer, "/api/optimiser/cost_knobs")
+    knobs = json.loads(body)
+    assert status == 200 and knobs["path"].startswith("configs/optimiser/optimiser_cost_v")
+    assert knobs["values"]["picking_hand"]["string_change"]["one_string"] > 0 and knobs["version"]
+
+
+def test_lr_knob_sweep_answers_segments_covering_the_lr_knob(viewer):
+    status, reply = post(viewer, "/api/optimiser/lr_knob_sweep", TOY_PASSAGE)
+    assert status == 200, reply
+    assert {"lr_knob", "terms", "segments", "passage", "positions"} <= set(reply)
+    lr_knob, segments = reply["lr_knob"], reply["segments"]
+    assert lr_knob["scale"] == "log" and lr_knob["min"] < lr_knob["default"] < lr_knob["max"]
+    # Segments run from the lr-knob's min to its max with no gap, each holding a realisation the page can draw
+    assert segments[0]["lr_knob_from"] == pytest.approx(lr_knob["min"])
+    assert segments[-1]["lr_knob_to"] == pytest.approx(lr_knob["max"])
+    assert all(a["lr_knob_to"] == pytest.approx(b["lr_knob_from"]) for a, b in zip(segments, segments[1:]))
+    assert all({"choices", "moves", "total_cost"} <= set(segment["realisation"]) for segment in segments)
+    assert reply["terms"]["string_change"] == "picking" and reply["terms"]["hand_shift"] == "fretting"
+
+
+def test_lr_knob_sweep_overrides_reach_the_sweep_for_that_sweep_only(viewer):
+    def swept_range(overrides: dict[str, Any]) -> tuple[float, float]:
+        status, reply = post(viewer, "/api/optimiser/lr_knob_sweep", {**TOY_PASSAGE, "overrides": overrides})
+        assert status == 200, reply
+        return reply["lr_knob"]["min"], reply["lr_knob"]["max"]
+    configured = swept_range({})
+    assert swept_range({"lr_knob": {"min": 0.5, "max": 2.0}}) == (0.5, 2.0)
+    assert swept_range({}) == configured
+
+
+def test_lr_knob_sweep_refuses_unknown_or_wrong_kind_knobs(viewer):
+    status, reply = post(viewer, "/api/optimiser/lr_knob_sweep", {**TOY_PASSAGE, "overrides": {"no_such_knob": 1}})
+    assert status == 400 and "no_such_knob" in reply["error"]
+    status, reply = post(viewer, "/api/optimiser/lr_knob_sweep",
+                         {**TOY_PASSAGE, "overrides": {"picking_hand": {"string_change": {"exponent": "steep"}}}})
+    assert status == 400 and "steep" in reply["error"]
+
+
+def test_preset_saves_the_overrides_once_and_refuses_bad_requests(viewer):
+    overrides = {"picking_hand": {"string_change": {"one_string": 0.8}}}
+    status, reply = post(viewer, "/api/optimiser/preset", {"name": "picky", "overrides": overrides})
+    assert status == 200, reply
+    preset = yaml.safe_load(Path(reply["path"]).read_text())
+    assert Path(reply["path"]) == viewer["folder"] / "presets/picky.yaml"
+    assert preset["overrides"] == overrides and preset["cost_config"].startswith("configs/optimiser/")
+    assert post(viewer, "/api/optimiser/preset", {"name": "picky", "overrides": overrides})[0] == 400  # never overwrites
+    assert post(viewer, "/api/optimiser/preset", {"name": "../escape", "overrides": overrides})[0] == 400
+    assert post(viewer, "/api/optimiser/preset", {"name": "empty", "overrides": {}})[0] == 400
+    assert post(viewer, "/api/optimiser/preset", {"name": "unknown", "overrides": {"nope": 1}})[0] == 400
+
+
 def test_unknown_post_route_is_404(viewer):
     assert post(viewer, "/api/nothing", {})[0] == 404
 
@@ -481,7 +537,8 @@ def test_unknown_post_route_is_404(viewer):
 # ---- startup ----
 
 def test_missing_folders_are_reported_before_starting(tmp_path):
-    config = {"paths": {"storage_root": tmp_path / "no_storage", "optimiser_run_config": RUN_CONFIG},
+    config = {"paths": {"storage_root": tmp_path / "no_storage", "optimiser_run_config": RUN_CONFIG,
+                        "optimiser_presets_folder": tmp_path / "no_presets"},
               "datasets": {"toy": {"root": tmp_path / "no_dataset"}}}
     problems = missing_folders(config)
-    assert len(problems) == 2 and "no_storage" in problems[0] and "no_dataset" in problems[1]
+    assert len(problems) == 3 and "no_storage" in problems[0] and "no_presets" in problems[1] and "no_dataset" in problems[2]

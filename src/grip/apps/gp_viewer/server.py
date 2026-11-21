@@ -5,7 +5,7 @@ The server listens on localhost; on a remote machine, forward the port (e.g. VS 
 This file is the HTTP side only: config, the route table, and sending replies. Each job lives in its
 own module, free of HTTP: datasets.py (song / track search, GP files), storage.py (the storage browser),
 runs.py (optimiser + existing-tool runs), catalogue.py (the catalogue view), flags.py (junk flags),
-annotate.py (reference passages), stitch.py (Stitch). The page itself (HTML,
+annotate.py (reference passages), stitch.py (Stitch), optimiser_view.py (the Optimiser view). The page itself (HTML,
 scripts, styles) lives in page/.
 Settings: configs/gp_viewer/server_v0.3.yaml.
 
@@ -33,6 +33,7 @@ from grip.apps.gp_viewer.annotate import cut_passage, save_reference
 from grip.apps.gp_viewer.catalogue import CatalogueBuild, CatalogueShelf
 from grip.apps.gp_viewer.datasets import DatasetIndex, resolve_inside
 from grip.apps.gp_viewer.flags import FlagStore
+from grip.apps.gp_viewer.optimiser_view import cost_knobs, lr_knob_sweep, save_preset
 from grip.apps.gp_viewer.runs import find_run_file, load_run_view, optimise_passage
 from grip.apps.gp_viewer.stitch import stitch_passage
 from grip.apps.gp_viewer.storage import StorageIndex
@@ -87,7 +88,7 @@ def runs_folder_of(run_config_path: Path) -> Path:
 def missing_folders(config: dict[str, Any]) -> list[str]:
     """Folders the viewer needs that aren't there, each with what to do about it; empty = all fine.
 
-    The runs folder is never made here: in a worktree it must be the link into storage, not a new real folder.
+    The runs and presets folders are never made here: in a worktree each must be the link into storage, not a new real folder.
     """
     problems = []
     if not config["paths"]["storage_root"].is_dir():
@@ -95,6 +96,9 @@ def missing_folders(config: dict[str, Any]) -> list[str]:
     runs_folder = runs_folder_of(config["paths"]["optimiser_run_config"])
     if not runs_folder.is_dir():
         problems.append(f"runs folder {runs_folder} is missing: run ./setup_worktree.sh (it links it into storage)")
+    presets_folder = config["paths"]["optimiser_presets_folder"]
+    if not presets_folder.is_dir():
+        problems.append(f"presets folder {presets_folder} is missing: run ./setup_worktree.sh (it links it into storage)")
     for name, dataset in config["datasets"].items():
         if not dataset["root"].is_dir():
             problems.append(f"dataset {name}: folder {dataset['root']} is missing")
@@ -324,6 +328,11 @@ def flagged_gp_file(app: ViewerApp, gp_path_text: str) -> Path:
         raise RouteError(HTTPStatus.NOT_FOUND, str(error)) from error
 
 
+def optimiser_cost_knobs(app: ViewerApp, params: dict[str, str]) -> dict[str, Any]:
+    """The cost config the Optimiser view's knob form is built from (see optimiser_view.cost_knobs)."""
+    return cost_knobs(app.run_config_path)
+
+
 def song_flags(app: ViewerApp, params: dict[str, str]) -> dict[str, Any]:
     """The junk flags of one GP file's tracks. Params: "gp_path" (full). Answers {"tracks": {index: flag}}."""
     gp_path = flagged_gp_file(app, params.get("gp_path", ""))
@@ -345,6 +354,7 @@ GET_ROUTES: dict[str, Callable[[ViewerApp, dict[str, str]], Any]] = {
     "/api/catalogue/entry": catalogue_entry,
     "/api/catalogue/occurrence": catalogue_occurrence,
     "/api/flags": song_flags,
+    "/api/optimiser/cost_knobs": optimiser_cost_knobs,
 }
 
 
@@ -396,12 +406,24 @@ def set_flags(app: ViewerApp, body: dict[str, Any]) -> dict[str, Any]:
     return {"gp_path": str(gp_path), "tracks": app.flags.song_flags(str(gp_path))}
 
 
+def optimiser_lr_knob_sweep(app: ViewerApp, body: dict[str, Any]) -> dict[str, Any]:
+    """Run the lr-knob sweep on a passage with knob overrides (see optimiser_view.lr_knob_sweep). Nothing is saved."""
+    return lr_knob_sweep(body, app.datasets, app.run_config_path)
+
+
+def optimiser_preset(app: ViewerApp, body: dict[str, Any]) -> dict[str, str]:
+    """Save knob overrides as a preset in the presets folder (see optimiser_view.save_preset)."""
+    return save_preset(body, app.run_config_path, app.config["paths"]["optimiser_presets_folder"])
+
+
 POST_ROUTES: dict[str, Callable[[ViewerApp, dict[str, Any]], Any]] = {
     "/api/optimise": optimise,
     "/api/stitch": stitch,
     "/api/passage": passage_for_annotating,
     "/api/reference": reference,
     "/api/flags": set_flags,
+    "/api/optimiser/lr_knob_sweep": optimiser_lr_knob_sweep,
+    "/api/optimiser/preset": optimiser_preset,
 }
 
 

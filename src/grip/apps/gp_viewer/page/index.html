@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GRIP viewer</title>
-<!-- Styles: viewer.css · script: viewer.mjs (imports annotate, catalogue_view, file_picker, flags, storage_browser, transport, fretboard, track_mixer, choices_to_tex) -->
+<!-- Styles: viewer.css · script: viewer.mjs (imports annotate, catalogue_view, file_picker, flags, optimiser_view, storage_browser, transport, fretboard, track_mixer, choices_to_tex) -->
 <link rel="stylesheet" href="/viewer.css">
 </head>
 <body>
@@ -36,10 +36,11 @@
       <span id="tuning" title="Open strings of what is shown, lowest string first"></span>
     </span>
   </div>
-  <!-- Song view / catalogue view (the catalogue one once a build is open) -->
+  <!-- Song view / catalogue view (the catalogue one once a build is open) / Optimiser view (once a song is open) -->
   <div id="view-switch" class="segmented" role="tablist">
     <button type="button" data-view="song" aria-pressed="true">Song</button>
     <button type="button" data-view="catalogue" aria-pressed="false" disabled title="Open a catalogue build from the Files tab">Catalogue</button>
+    <button type="button" data-view="optimiser" aria-pressed="false" disabled title="Turn the lr-knob on the bars picked in the Song view">Optimiser</button>
   </div>
   <select id="realisation-select" disabled title="Realisation of the open run"></select>
   <span id="status"></span>
@@ -133,12 +134,33 @@
   <div id="sidebar-divider" class="side-divider" role="separator" aria-orientation="vertical" title="Drag to resize"></div>
 
   <main id="main">
+    <!-- Optimiser view (optimiser_view.mjs): the lr-knob, one band per segment of the lr-knob sweep, a tick at every flip -->
+    <div id="lr-knob-bar">
+      <span class="lr-knob-end">easier on the<br>fretting hand</span>
+      <div id="lr-knob-track">
+        <div id="lr-knob-segments"></div>
+        <div id="lr-knob-default-mark" title="The default lr-knob"></div>
+        <input type="range" id="lr-knob-slider" min="0" max="1000" step="1" value="500" disabled title="Drag to turn the lr-knob (, / . = previous / next tab)">
+      </div>
+      <span class="lr-knob-end">easier on the<br>picking hand</span>
+      <div id="lr-knob-readout">
+        <span id="lr-knob-value"></span>
+        <span id="lr-knob-tab-count"></span>
+        <button id="lr-knob-reset" type="button" disabled title="Back to the default lr-knob">default</button>
+      </div>
+    </div>
     <div id="viewport">
       <div id="empty-state">
         <strong>Nothing open yet</strong>
         <span>Pick a file on the left: recent runs, the storage folders, or the datasets.</span>
       </div>
       <div id="score"></div><div id="selection-boxes"></div><div id="stitch-boxes"></div>
+    </div>
+    <!-- Optimiser view: what each hand paid per note for the tab shown (picking with the lr-knob applied) -->
+    <div id="cost-strip">
+      <div id="cost-strip-totals"></div>
+      <div id="cost-strip-chart"></div>
+      <div id="cost-strip-tip" hidden></div>
     </div>
     <!-- Fretboard drawer (fretboard.mjs), opened from the transport bar -->
     <div id="fretboard-panel" class="drawer" hidden>
@@ -156,6 +178,8 @@
        hidden with its top-bar button, its width set by dragging its left edge -->
   <aside id="right-column">
     <div id="note-panel"></div>
+    <!-- Optimiser view: the cost config's knobs (edits rerun the lr-knob sweep, never written to configs/), presets -->
+    <div id="knob-panel"></div>
     <section id="mixer-drawer">
       <h2>Mixer</h2>
       <p class="hint" id="mixer-empty">Open a song to mix its tracks.</p>

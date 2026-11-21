@@ -5,6 +5,7 @@
 //   catalogue_view.mjs   the catalogue view: interval paths, layouts, their family, where they turn up
 //   file_picker.mjs      path box, the Datasets tab (songs / tracks search)
 //   flags.mjs            junk flags: the flag box (song view's top bar, catalogue player)
+//   optimiser_view.mjs   the Optimiser view: the lr-knob (an lr-knob sweep's segments), the cost strip, the knob form, presets
 //   stitch.mjs           the Stitch pop-up, and its block boxes + uncovered notes on the tab
 //   storage_browser.mjs  the Files tab: recent files + the storage folder as on disk
 //   transport.mjs        the transport bar: play / pause, bars, scrub, loop, speed, their keys
@@ -18,6 +19,7 @@ import { setupCatalogueView } from '/catalogue_view.mjs';
 import { setupFilePicker } from '/file_picker.mjs';
 import { setupFlags } from '/flags.mjs';
 import { setupFretboard, tuningText } from '/fretboard.mjs';
+import { setupOptimiserView } from '/optimiser_view.mjs';
 import { setupStitch } from '/stitch.mjs';
 import { setupStorageBrowser } from '/storage_browser.mjs';
 import { setupTrackMixer } from '/track_mixer.mjs';
@@ -57,9 +59,11 @@ const state = {
                       //   stitch (kind 'stitch' only: { build, mode, members_only, blocks, uncovered }) }
   annotation: null,   // { settings, passage, positions, choices, startChoices, startedFrom, dirty, report }
   phrase: null,       // the catalogue player's occurrence: { passage, choices, positions, label }
-  songSideView: null, // the song view's `view`, kept while the catalogue view shows (they share one tab)
+  sweep: null,        // the Optimiser view's lr-knob sweep: { settings, overrides, lr_knob, terms, segments, passage, positions, lrKnobValue }
+  songSideView: null, // the song view's `view`, kept while the catalogue or Optimiser view shows (they share one tab)
   view: null,         // what the score shows: { kind: 'song' } | { kind: 'realisation', rank } | { kind: 'annotation' }
                       //   | { kind: 'phrase' } (catalogue view: the player's occurrence)
+                      //   | { kind: 'segment', index } (Optimiser view: one segment of the lr-knob sweep)
   selection: [],      // selected passage note indices, in order (realisation + annotation views)
   draggedBeats: null, // the song view's last click or drag: { first, last } alphaTab beats
 };
@@ -168,12 +172,24 @@ function shownPassage() {
     const { passage, positions, choices, label } = state.phrase;
     return { passage, positions, choices, realisation: null, editable: false, label };
   }
+  if (state.view?.kind === 'segment') {
+    const { passage, positions, segments } = state.sweep;
+    const realisation = segments[state.view.index].realisation;
+    return { passage, positions, choices: realisation.choices, realisation, editable: false, label: optimiserView.segmentLabel(state.view.index) };
+  }
   return null;
+}
+
+/** Which view shows: 'song', 'catalogue' or 'optimiser'. */
+function currentMode() {
+  if (document.body.classList.contains('catalogue-mode')) return 'catalogue';
+  if (document.body.classList.contains('optimiser-mode')) return 'optimiser';
+  return 'song';
 }
 
 /** True while the catalogue view shows. */
 function inCatalogueMode() {
-  return document.body.classList.contains('catalogue-mode');
+  return currentMode() === 'catalogue';
 }
 
 /** True if two choices for one note differ in string, fret, finger or stroke. */
@@ -231,7 +247,7 @@ function currentBeatMap() {
 const viewer = {
   element, statusLabel, api, state, pageConfig, postJson, remember, recall,
   renderView, shownPassage, choicesDiffer, changedFromStart, currentBeatMap, updateDropdowns, openFile, showTrack,
-  showRunFile, onFileOpened, openCatalogue, openPhrase, setView, showPhrase,
+  showRunFile, onFileOpened, openCatalogue, openPhrase, setView, showPhrase, currentMode,
   readSettings, sameSettings, confirmDiscardAnnotation, openRunView, openCatalogueEntry, buildBeatMap,
 };
 const flags = setupFlags(viewer);
@@ -241,11 +257,14 @@ const fretboard = setupFretboard(viewer);
 // annotate.mjs redraws the fretboard after each selection
 viewer.updateFretboard = fretboard.updateFretboard;
 const annotate = setupAnnotate(viewer);
+// The Optimiser view's cost strip marks the selected note on the tab
+viewer.drawSelectionBoxes = annotate.drawSelectionBoxes;
 const mixer = setupTrackMixer(viewer);
 const transport = setupTransport(viewer);
 const filePicker = setupFilePicker(viewer);
 const catalogueView = setupCatalogueView(viewer);
 const stitch = setupStitch(viewer);
+const optimiserView = setupOptimiserView(viewer);
 const storageBrowser = setupStorageBrowser(viewer);
 
 // ---- Drawing ----
@@ -267,7 +286,7 @@ function renderView(keepScroll = false) {
       : shown.choices;
     let trackName;
     if (editing) trackName = `annotation (from ${state.annotation.startedFrom})`;
-    else if (state.view.kind === 'phrase') trackName = shown.label;
+    else if (state.view.kind === 'phrase' || state.view.kind === 'segment') trackName = shown.label;
     else trackName = realisationLabel(shown.realisation);
     const score = alphaTab.importer.ScoreLoader.loadAlphaTex(choicesToTex(shown.passage, choices, shown.passage.name, trackName), new alphaTab.Settings());
     if (editing) colourChangedNotes(score);
@@ -281,19 +300,25 @@ function renderView(keepScroll = false) {
   updateDropdowns();
   updateButtons();
   annotate.updatePanel();
+  optimiserView.updateView();
   mixer.updateMixer();
   mixer.applyMixer();
 }
 
 /** What shows around the tab: the empty-state hint until something is drawn, the note panel while a
- *  passage (realisation / annotation) is shown, the mixer's "no song" line. */
+ *  passage (realisation / annotation) is shown, the knob form in the Optimiser view, the mixer's "no song" line. */
 function updatePanels() {
+  const mode = currentMode();
   document.body.classList.toggle('has-score', state.view !== null);
-  document.body.classList.toggle('details-open', shownPassage() !== null && !inCatalogueMode());
+  document.body.classList.toggle('details-open', (shownPassage() !== null && mode === 'song') || mode === 'optimiser');
   element('mixer-empty').hidden = Boolean(state.song);
-  element('empty-state').querySelector('span').textContent = inCatalogueMode()
-    ? 'Pick an interval path on the left to play one of its occurrences here.'
-    : 'Pick a file on the left: recent runs, the storage folders, or the datasets.';
+  const hints = {
+    catalogue: 'Pick an interval path on the left to play one of its occurrences here.',
+    optimiser: optimiserView.emptyHint(),
+    song: 'Pick a file on the left: recent runs, the storage folders, or the datasets.',
+  };
+  element('empty-state').querySelector('strong').textContent = mode === 'optimiser' ? 'No passage yet' : 'Nothing open yet';
+  element('empty-state').querySelector('span').textContent = hints[mode];
 }
 
 /** Colour the fret numbers of annotation notes that differ from the starting draft. */
@@ -325,7 +350,7 @@ function realisationLabel(realisation) {
 }
 
 function updateTitle() {
-  if (document.body.classList.contains('catalogue-mode')) return;
+  if (inCatalogueMode()) return;
   const song = state.song?.score;
   const songTitle = song ? [song.artist, song.title].filter(Boolean).join(' — ') || '(untitled)' : null;
   const passageName = shownPassage() && state.run && state.view.kind === 'realisation'
@@ -362,6 +387,7 @@ function updateDropdowns() {
 
 function updateButtons() {
   for (const id of ['run-button', 'run-toggle', 'stitch-button', 'stitch-toggle']) element(id).disabled = !state.song;
+  element('view-switch').querySelector('[data-view=optimiser]').disabled = !state.song;
   if (!state.song) closePopovers();
   element('edit-button').disabled = !(state.view?.kind === 'song' || state.view?.kind === 'realisation');
   element('save-button').disabled = !state.annotation;
@@ -412,7 +438,7 @@ async function loadSong(path, trackIndex, searched = []) {
 /** Open a GP file on one track; closes any run and annotation. True if it opened. */
 async function openFile(path, trackIndex = 0, searched = []) {
   if (!confirmDiscardAnnotation('Open another file')) return false;
-  if (inCatalogueMode()) setView('song', false);
+  if (currentMode() !== 'song') setView('song', false);
   api.stop();
   if (!(await loadSong(path, trackIndex, searched))) return false;
   Object.assign(state, { run: null, annotation: null, view: { kind: 'song' }, selection: [], draggedBeats: null });
@@ -432,7 +458,7 @@ async function openFile(path, trackIndex = 0, searched = []) {
  *   keepAnnotation: Keep the open annotation (a run on the same passage as it).
  */
 async function showRun(path, keepAnnotation = false) {
-  if (inCatalogueMode()) setView('song', false);
+  if (currentMode() !== 'song') setView('song', false);
   statusLabel.textContent = 'loading…';
   const response = await fetch(`/api/run?${new URLSearchParams({ path })}`);
   if (!response.ok) {
@@ -594,39 +620,45 @@ window.addEventListener('beforeunload', (event) => {
   if (state.annotation?.dirty) event.preventDefault();
 });
 
-// ---- Tab view / catalogue view ----
+// ---- Song view / catalogue view / Optimiser view ----
 
 /**
- * Show the song view ('song') or the catalogue view ('catalogue'). They share one tab, fretboard and transport:
- * the tab and fretboard move into the catalogue's player slot and back, and each view keeps what it showed.
+ * Show the song view ('song'), the catalogue view ('catalogue') or the Optimiser view ('optimiser'). They share
+ * one tab, fretboard and transport: the tab and fretboard move into the catalogue's player slot and back, and
+ * each view keeps what it showed. Entering the Optimiser view runs an lr-knob sweep on the song view's bars if needed.
  *
  * Args:
- *   view: 'song' or 'catalogue'.
+ *   view: 'song', 'catalogue' or 'optimiser'.
  *   redraw: Draw the view's own score now (false when the caller draws something new straight after).
  */
 function setView(view, redraw = true) {
-  const catalogueMode = view === 'catalogue';
-  if (catalogueMode !== inCatalogueMode()) {
-    if (catalogueMode) {
-      state.songSideView = state.view;
-      state.view = state.phrase ? { kind: 'phrase' } : null;
-    } else {
+  const from = currentMode();
+  if (view !== from) {
+    if (from === 'song') state.songSideView = state.view;
+    if (view === 'song') {
       state.view = state.songSideView;
       state.songSideView = null;
+    } else if (view === 'catalogue') {
+      state.view = state.phrase ? { kind: 'phrase' } : null;
+    } else {
+      state.view = optimiserView.viewOfSweep();
     }
     state.selection = [];
     api.stop();
-    document.body.classList.toggle('catalogue-mode', catalogueMode);
-    (catalogueMode ? element('catalogue-player-slot') : element('main')).append(viewport, element('fretboard-panel'));
+    document.body.classList.toggle('catalogue-mode', view === 'catalogue');
+    document.body.classList.toggle('optimiser-mode', view === 'optimiser');
+    if (view === 'catalogue') element('catalogue-player-slot').append(viewport, element('fretboard-panel'));
+    else element('main').append(element('lr-knob-bar'), viewport, element('cost-strip'), element('fretboard-panel'));
   }
   for (const button of document.querySelectorAll('#view-switch button')) {
     button.setAttribute('aria-pressed', String(button.dataset.view === view));
   }
-  // The mixer is for songs (the player's phrase is one track); the explorer only exists in the catalogue view
-  element('mixer-toggle').disabled = catalogueMode;
-  element('explorer-toggle').disabled = !catalogueMode;
-  if (catalogueMode) element('song-title').textContent = catalogueView.catalogueName() ?? 'Catalogue';
+  // The mixer is for songs (the player's phrase and the sweep's tab are one track); the explorer only exists in the catalogue view
+  element('mixer-toggle').disabled = view !== 'song';
+  element('explorer-toggle').disabled = view !== 'catalogue';
+  if (view === 'catalogue') element('song-title').textContent = catalogueView.catalogueName() ?? 'Catalogue';
   if (redraw) renderView();
+  if (view === 'optimiser' && view !== from) optimiserView.enter();
 }
 
 /** Play a catalogue occurrence in the catalogue view's player, or empty it with null (catalogue_view.mjs calls this). */

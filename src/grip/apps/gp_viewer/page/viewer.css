@@ -17,6 +17,8 @@
   --highlight-soft: #ffe8d6;
   --stitch: #0e8a6d;
   --stitch-text: #ffffff;
+  --fretting: #2f6fed;
+  --picking: #e05a00;
   --shadow: 0 8px 28px rgba(15, 23, 42, 0.14);
   --radius: 8px;
 }
@@ -34,6 +36,8 @@
     --highlight-soft: #4a2c16;
     --stitch: #2fbf94;
     --stitch-text: #0b1f19;
+    --fretting: #5b8cff;
+    --picking: #ff8a3d;
     --shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
   }
 }
@@ -358,3 +362,79 @@ button.flag.flagged { background: var(--warn); border-color: var(--warn); color:
 #flag-dialog menu .spacer { flex: 1; }
 .occurrence-song .badge.junk { margin-left: 6px; }
 .junk-line { color: var(--warn); font-size: 12px; font-weight: 600; }
+
+/* ---- Optimiser view (optimiser_view.mjs): the lr-knob over the tab, the cost strip under it, the knob form on the right ---- */
+#lr-knob-bar, #cost-strip, #knob-panel { display: none; }
+body.optimiser-mode #lr-knob-bar { display: flex; }
+body.optimiser-mode.has-score #cost-strip { display: block; }
+body.optimiser-mode #knob-panel { display: block; }
+body.optimiser-mode #note-panel { display: none; }
+/* Song-view controls mean nothing here */
+body.optimiser-mode #subtitle, body.optimiser-mode #realisation-select, body.optimiser-mode .popover-anchor,
+body.optimiser-mode #edit-button, body.optimiser-mode #save-button { display: none; }
+
+#lr-knob-bar { flex: none; align-items: center; gap: 12px; padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--border); }
+.lr-knob-end { flex: none; font-size: 11px; line-height: 1.2; color: var(--muted); text-align: center; }
+#lr-knob-track { position: relative; flex: 1; height: 30px; min-width: 120px; }
+/* Bands sit 8px in from each end: where the slider thumb's centre can go */
+#lr-knob-segments { position: absolute; left: 8px; right: 8px; top: 9px; height: 12px; }
+.lr-knob-band { position: absolute; top: 0; bottom: 0; background: var(--border); }
+.lr-knob-band.odd { background: var(--hover); }
+.lr-knob-band.current { background: var(--accent-soft); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.lr-knob-band:first-child { border-radius: 6px 0 0 6px; }
+.lr-knob-band:last-child { border-radius: 0 6px 6px 0; }
+.lr-knob-band:only-child { border-radius: 6px; }
+/* A flip: a tick across the band's left edge */
+.lr-knob-band.flip::before { content: ""; position: absolute; left: -1px; top: -5px; bottom: -5px; width: 2px; background: var(--text); border-radius: 1px; }
+#lr-knob-default-mark { position: absolute; top: 0; width: 0; height: 0; margin-left: -5px; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid var(--muted); pointer-events: none; }
+#lr-knob-default-mark[hidden] { display: none; }
+#lr-knob-slider { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; background: transparent; -webkit-appearance: none; appearance: none; cursor: pointer; }
+#lr-knob-slider:disabled { cursor: default; }
+#lr-knob-slider::-webkit-slider-runnable-track { height: 30px; background: transparent; }
+#lr-knob-slider::-moz-range-track { background: transparent; }
+#lr-knob-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; margin-top: 7px; border-radius: 50%; background: var(--accent); border: 2px solid var(--panel); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35); }
+#lr-knob-slider::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--accent); border: 2px solid var(--panel); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35); }
+#lr-knob-slider:disabled::-webkit-slider-thumb { visibility: hidden; }
+#lr-knob-slider:disabled::-moz-range-thumb { visibility: hidden; }
+#lr-knob-readout { flex: none; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); min-width: 250px; }
+#lr-knob-value { font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; min-width: 64px; }
+#lr-knob-readout button { padding: 1px 8px; font-size: 12px; }
+
+#cost-strip { flex: none; position: relative; padding: 6px 12px 4px; background: var(--panel); border-top: 1px solid var(--border); }
+#cost-strip-totals { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+#cost-strip-totals .fretting { color: var(--fretting); font-weight: 600; }
+#cost-strip-totals .picking { color: var(--picking); font-weight: 600; }
+#cost-strip-chart svg { display: block; width: 100%; }
+.strip-label { font: 10px system-ui, sans-serif; fill: var(--muted); }
+.strip-label.fretting { fill: var(--fretting); }
+.strip-label.picking { fill: var(--picking); }
+.strip-axis { stroke: var(--border); }
+.strip-column { fill: transparent; cursor: pointer; }
+.strip-column.hovered { fill: var(--hover); }
+.strip-column.selected { fill: var(--highlight-soft); }
+.strip-bar { pointer-events: none; }
+.strip-bar.fretting { fill: var(--fretting); }
+.strip-bar.picking { fill: var(--picking); }
+.strip-clipped { fill: var(--warn); pointer-events: none; }
+#cost-strip-tip { position: absolute; z-index: 5; pointer-events: none; padding: 6px 8px; font-size: 12px; white-space: pre; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; box-shadow: var(--shadow); }
+#cost-strip-tip[hidden] { display: none; }
+
+#knob-panel { flex: 1; overflow-y: auto; padding: 12px; }
+#knob-panel h2 { font-size: 15px; margin: 0 0 2px; }
+#knob-panel h3 { font-size: 13px; margin: 16px 0 6px; color: var(--muted); }
+#knob-panel > .hint { margin: 0 0 8px; word-break: break-all; }
+.knob-group { margin-top: 6px; }
+.knob-group-name { font-size: 12px; font-weight: 600; color: var(--muted); }
+.knob-children { margin-left: 3px; padding-left: 9px; border-left: 1px solid var(--border); }
+.knob-row { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+.knob-row label { flex: 1; min-width: 0; font: 12px ui-monospace, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.knob-row input[type=number] { width: 84px; text-align: right; padding: 2px 6px; }
+.knob-row.edited label { color: var(--highlight); font-weight: 600; }
+.knob-row.edited input[type=number] { border-color: var(--highlight); background: var(--highlight-soft); }
+.knob-reset { padding: 0 6px; font-size: 12px; visibility: hidden; }
+.knob-row.edited .knob-reset { visibility: visible; }
+#knob-reset-all { margin-top: 10px; }
+.preset-row { display: flex; gap: 6px; }
+.preset-row input { flex: 1; }
+#preset-status { margin: 6px 0 0; word-break: break-all; }
+#preset-status.warning { color: var(--warn); }

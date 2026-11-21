@@ -34,11 +34,14 @@ paths:
   # Every result lands here: the repo's data/ folders are links into it.
   storage_root: ~/storage/grip
   # The run config the Run button uses (guitar, cost knobs, search settings, runs folder)
-  optimiser_run_config: configs/optimiser/optimiser_run_v1.1.yaml
+  optimiser_run_config: configs/optimiser/optimiser_run_v1.2.yaml
   # Reference passages saved from annotate mode (src/grip/calibration/reference_set.py); off git
   reference_set_folder: ~/storage/grip/calibration/reference_set
   # Junk flags set while browsing (corpus clean-up): one JSON file, off git (it names dataset songs)
   flags_file: ~/storage/grip/flags/track_flags.json
+  # Optimiser view presets (knob edits saved from the page); a link into storage, off git. Promoting one to
+  # configs/ is done by hand
+  optimiser_presets_folder: data/optimiser_presets
   # alphaTab's browser build, notation font and soundfont (installed by `uv run npm ci`)
   alphatab_dist: node_modules/@coderline/alphatab/dist
 
