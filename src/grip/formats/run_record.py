@@ -17,8 +17,9 @@ from grip.core.hand import FINGER_NAMES
 from grip.optimiser.realisation_search import Flag, Realisation
 
 STROKE_LETTERS = {"down": "D", "up": "U"}
-# Format tag + version written into every run file (the gp_viewer checks it)
-RUN_FILE_FORMAT = {"name": "grip_optimiser_run", "version": "1.0"}
+# Format tag + version written into every run file (the gp_viewer checks it).
+# 1.1 = 1.0 + per-realisation "hand_totals", + "lr_knob_sweep" in sweep runs (a superset: 1.0 readers still work)
+RUN_FILE_FORMAT = {"name": "grip_optimiser_run", "version": "1.1"}
 
 
 def stroke_letter(realisation: Realisation, index: int, stroke: str) -> str:
@@ -167,7 +168,8 @@ def passage_to_dict(passage: Passage) -> dict:
 def realisation_to_dict(realisation: Realisation, rank: int, best: Realisation, flag_notes_around: int) -> dict:
     """One realisation as plain JSON-ready data: choices, move costs, flags and pick plans.
 
-    Each choice carries the first pick plan's stroke and stroke letter (what the gp_viewer shows).
+    Each choice carries the first pick plan's stroke and stroke letter (what the gp_viewer shows). Move terms are
+    raw; hand_totals = raw fretting and picking totals (total at lr-knob d = fretting + d × picking).
 
     Args:
         realisation: The realisation.
@@ -189,7 +191,7 @@ def realisation_to_dict(realisation: Realisation, rank: int, best: Realisation, 
         })
     pick_plans = [{"habit": plan.habit, "strokes": list(plan.strokes), "stroke_letters": stroke_letters(realisation, plan.strokes),
                    "flags": list(plan.flags)} for plan in realisation.pick_plans]
-    return {"rank": rank, "total_cost": realisation.total_cost,
+    return {"rank": rank, "total_cost": realisation.total_cost, "hand_totals": realisation.hand_totals(),
             "differs_at_notes": differing_notes(realisation, best),
             "choices": choices, "moves": [asdict(move) for move in realisation.moves],
             "flags": [{**asdict(flag), "notes_around": notes_around(realisation, flag, flag_notes_around)}

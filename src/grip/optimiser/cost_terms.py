@@ -59,6 +59,9 @@ class CostConfig:
         reference_gap_seconds: Time between notes at which costs hold exactly as written.
         rest_min_beats: A rest at least this long starts a new phrase.
         bar_lines_start_phrases: Every bar line starts a new phrase.
+        lr_knob: The balance between the hands: a move costs fretting terms + lr-knob × picking terms.
+        lr_knob_min: Lowest lr-knob value the sweep looks at.
+        lr_knob_max: Highest lr-knob value the sweep looks at.
     """
 
     string_change_one_string: float
@@ -77,6 +80,9 @@ class CostConfig:
     reference_gap_seconds: float
     rest_min_beats: float
     bar_lines_start_phrases: bool
+    lr_knob: float
+    lr_knob_min: float
+    lr_knob_max: float
 
 
 def load_cost_config(config_path: Path) -> CostConfig:
@@ -85,8 +91,18 @@ def load_cost_config(config_path: Path) -> CostConfig:
     Args:
         config_path: Path to a configs/optimiser/optimiser_cost_v*.yaml file.
     """
-    raw = yaml.safe_load(Path(config_path).read_text())
+    return cost_config_from_dict(yaml.safe_load(Path(config_path).read_text()))
+
+
+def cost_config_from_dict(raw: dict) -> CostConfig:
+    """Build the cost knobs from a cost config's contents (as read from YAML, overrides possibly merged in).
+
+    Args:
+        raw: The cost config as a dict.
+    """
     fretting, picking = raw["fretting_hand"], raw["picking_hand"]
+    # Cost v1.1 and earlier have no lr-knob: both hands count the same, nothing to sweep
+    lr_knob = raw.get("lr_knob", {"default": 1.0, "min": 1.0, "max": 1.0})
     # Cost v1.0 has no no-go zone: it costs nothing there
     no_go_zone = fretting.get("no_go_zone", {"one_fret": 0.0, "exponent": 1.0, "no_go": 0.0})
     return CostConfig(
@@ -107,7 +123,30 @@ def load_cost_config(config_path: Path) -> CostConfig:
         reference_gap_seconds=float(raw["timing"]["reference_gap_seconds"]),
         rest_min_beats=float(raw["phrase_start_proxies"]["rest_min_beats"]),
         bar_lines_start_phrases=bool(raw["phrase_start_proxies"]["bar_lines"]),
+        lr_knob=float(lr_knob["default"]),
+        lr_knob_min=float(lr_knob["min"]),
+        lr_knob_max=float(lr_knob["max"]),
     )
+
+
+def term_weight(term_name: str, config: CostConfig) -> float:
+    """What one unit of a cost term counts for in the search: the lr-knob for picking terms, 1 for fretting terms.
+
+    Args:
+        term_name: A key of TERM_HAND.
+        config: Cost knobs (the lr-knob).
+    """
+    return config.lr_knob if TERM_HAND[term_name] == "picking" else 1.0
+
+
+def weighted_total(terms: dict[str, float], config: CostConfig) -> float:
+    """A move's cost as the search counts it: fretting terms + lr-knob × picking terms.
+
+    Args:
+        terms: Term name → raw value.
+        config: Cost knobs (the lr-knob).
+    """
+    return sum(value * term_weight(name, config) for name, value in terms.items())
 
 
 def time_multiplier(gap_seconds: float, config: CostConfig) -> float:

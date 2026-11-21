@@ -11,12 +11,13 @@ State of one note (docs/design_spec.md, hand model v1.0):
   passage (enforced articulations), so the slot only carries the last picked note's string across
   unpicked notes: PICKED (this note's own string) · 1 … string count · NOTHING_PICKED yet
 
-Strokes cost nothing: every realisation gets one pick plan per habit after the search
+The lr-knob weighs the hands: the search adds fretting terms + lr-knob × picking terms (cost_terms.weighted_total);
+every term itself is kept raw. Strokes cost nothing: every realisation gets one pick plan per habit after the search
 (grip.optimiser.pick_plans). Every route's cost is recomputed by score_path, which the breakdown
 uses; tests check it equals the search's own total.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 
@@ -24,8 +25,9 @@ from grip.core.guitar import Position, candidate_positions
 from grip.core.hand import HandProfile
 from grip.core.passage import NO_PICK_ARTICULATIONS, Passage
 from grip.optimiser.cost_terms import (
-    CostConfig, box_allows_but_hand_cannot, finger_pair_cost, finger_stretch_cost, hand_shift_cost, legato_terms,
-    no_go_zone_cost, open_string_bend_cost, same_finger_cost, string_change_cost,
+    TERM_HAND, CostConfig, box_allows_but_hand_cannot, finger_pair_cost, finger_stretch_cost, hand_shift_cost,
+    legato_terms, no_go_zone_cost, open_string_bend_cost, same_finger_cost, string_change_cost, term_weight,
+    weighted_total,
 )
 from grip.optimiser.pick_plans import decide_strokes
 
@@ -102,8 +104,8 @@ class MoveCost:
 
     Args:
         passage_index: Index of the arriving note in Passage.notes.
-        terms: Term name → value.
-        total: Sum of the terms — what the search adds up.
+        terms: Term name → raw value (no lr-knob).
+        total: Fretting terms + lr-knob × picking terms — what the search adds up.
     """
 
     passage_index: int
@@ -150,7 +152,7 @@ class Realisation:
     Args:
         choices: One NoteChoice per event of the passage (null symbols included).
         moves: One MoveCost per playable note.
-        total_cost: Sum of the move costs.
+        total_cost: Sum of the move costs (at the lr-knob the moves were weighted with).
         flags: Spots where the box said fine but the hand couldn't reach.
         pick_plans: One per habit, in the run config's order.
         passage: The passage this realisation plays (shared, not copied); left out of repr and
@@ -167,6 +169,23 @@ class Realisation:
     def fingering_key(self) -> tuple:
         """The fingering's (string, fret) per note; finger and hand position left out."""
         return tuple(choice.position for choice in self.choices)
+
+    def hand_totals(self) -> dict[str, float]:
+        """Raw cost per hand over the whole passage: {"fretting": F, "picking": P}; total at lr-knob d = F + d × P."""
+        totals = {"fretting": 0.0, "picking": 0.0}
+        for move in self.moves:
+            for name, value in move.terms.items():
+                totals[TERM_HAND[name]] += value
+        return totals
+
+    def at_lr_knob(self, config: CostConfig) -> "Realisation":
+        """The same realisation with its move totals and total cost reweighted at the config's lr-knob.
+
+        Args:
+            config: Cost knobs (the lr-knob).
+        """
+        moves = tuple(replace(move, total=weighted_total(move.terms, config)) for move in self.moves)
+        return replace(self, moves=moves, total_cost=sum(move.total for move in moves))
 
 
 def build_note_contexts(passage: Passage, config: CostConfig) -> list[NoteContext]:
@@ -321,7 +340,7 @@ def score_path(passage: Passage, contexts: list[NoteContext], path: list[HandSta
     for index, (context, state) in enumerate(zip(contexts, path)):
         previous = path[index - 1] if index else None
         terms = move_terms(context, previous, last_pick_string, state, passage, profile, config)
-        moves.append(MoveCost(context.passage_index, terms, sum(terms.values())))
+        moves.append(MoveCost(context.passage_index, terms, weighted_total(terms, config)))
         # Flag: the box would have kept the finger in reach of the old hand position, the hand couldn't
         if (previous is not None and previous.hand != state.hand
                 and box_allows_but_hand_cannot(state.position, state.finger, previous.hand, profile, config,
@@ -462,13 +481,14 @@ def initial_values(context: NoteContext, states: list[HandState], slot_count: in
     values = np.full((len(states), slot_count, k_routes), np.inf)
     slot = PICKED if context.picked else slot_count - 1
     for state_index, state in enumerate(states):
-        values[state_index, slot, 0] = sum(move_terms(context, None, None, state, passage, profile, config).values())
+        values[state_index, slot, 0] = weighted_total(move_terms(context, None, None, state, passage, profile, config),
+                                                      config)
     return values
 
 
 def position_pair_matrix(context: NoteContext, previous: NoteContext, slot: int, previous_slot: int,
                          passage: Passage, config: CostConfig) -> np.ndarray:
-    """Terms that hang on both notes' positions — string change or legato — and the slide / slot rules.
+    """Terms that hang on both notes' positions — string change (× lr-knob) or legato — and the slide / slot rules.
 
     Args:
         context: The arriving note.
@@ -482,6 +502,7 @@ def position_pair_matrix(context: NoteContext, previous: NoteContext, slot: int,
         Array (previous positions, positions); inf where the pair is not allowed.
     """
     string_count = passage.guitar.string_count
+    string_change_weight = term_weight("string_change", config)
     matrix = np.full((len(previous.positions), len(context.positions)), np.inf)
     for previous_index, previous_position in enumerate(previous.positions):
         last_pick_string = last_pick_string_seen(previous_slot, previous_position, string_count)
@@ -492,11 +513,11 @@ def position_pair_matrix(context: NoteContext, previous: NoteContext, slot: int,
             if not slide_allowed(context, previous_position, position):
                 continue
             if slot == PICKED:
-                matrix[previous_index, index] = string_change_cost(last_pick_string, position.string,
-                                                                   context.gap_since_last_pick or 0.0, config)
+                matrix[previous_index, index] = string_change_weight * string_change_cost(
+                    last_pick_string, position.string, context.gap_since_last_pick or 0.0, config)
             else:
-                matrix[previous_index, index] = sum(legato_terms(
-                    legato_is_normal(context, previous_position, position), context.gap_since_previous, config).values())
+                matrix[previous_index, index] = weighted_total(legato_terms(
+                    legato_is_normal(context, previous_position, position), context.gap_since_previous, config), config)
     return matrix
 
 
