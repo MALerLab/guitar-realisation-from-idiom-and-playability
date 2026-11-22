@@ -1,5 +1,6 @@
-"""Runs in the viewer: the page's passage settings → a run source, running the optimiser on it, and
-opening run files (optimiser runs and existing-tool runs) with every note's neck positions."""
+"""Runs in the viewer: the page's passage settings → a run source (a GP track's bars, or a MIDI file's), running the
+optimiser on it, opening run files (optimiser runs and existing-tool runs) with every note's neck positions, and a
+MIDI file as the page's piano roll needs it."""
 
 import json
 from pathlib import Path
@@ -7,22 +8,25 @@ from typing import Any
 
 from grip.apps.gp_viewer.datasets import DatasetIndex
 from grip.core.guitar import GuitarSetup, candidate_positions
-from grip.pipelines.optimiser_run import run_search, save_run_record
+from grip.core.passage import TICKS_PER_QUARTER
+from grip.formats.midi import read_midi_content
+from grip.formats.run_record import passage_to_dict
+from grip.pipelines.optimiser_run import load_run_config, load_source_passage, run_search, save_run_record
 
 
-def gp_source_from_settings(settings: dict[str, Any], datasets: DatasetIndex) -> dict[str, Any]:
+def passage_source_from_settings(settings: dict[str, Any], datasets: DatasetIndex) -> dict[str, Any]:
     """Check the page's passage settings and turn them into a run source (see grip.pipelines.optimiser_run.load_source_passage).
 
     Args:
-        settings: {"gp", "track", "first_bar", "last_bar", "voice", "tempo_override_bpm" (or null), "tuning_shift"}.
-        datasets: GP files must sit under one of its roots.
+        settings: {"gp", "track", "voice"} or {"midi"}, plus "first_bar", "last_bar", "tempo_override_bpm" (or null),
+            "tuning_shift".
+        datasets: GP files must sit under one of its roots; MIDI files in the storage folder.
 
     Raises:
         ValueError: with a message for the page, if anything is missing or out of range.
     """
-    gp_path = datasets.find_gp_file(str(settings.get("gp", "")), list(datasets.roots))
     try:
-        track, first_bar, last_bar, voice = (int(settings[name]) for name in ("track", "first_bar", "last_bar", "voice"))
+        first_bar, last_bar = (int(settings[name]) for name in ("first_bar", "last_bar"))
         tuning_shift = int(settings.get("tuning_shift") or 0)
         tempo = settings.get("tempo_override_bpm")
         tempo = float(tempo) if tempo not in (None, "") else None
@@ -30,10 +34,36 @@ def gp_source_from_settings(settings: dict[str, Any], datasets: DatasetIndex) ->
         raise ValueError(f"passage settings incomplete or not numbers ({error})") from error
     if not 1 <= first_bar <= last_bar:
         raise ValueError(f"bars {first_bar}–{last_bar}: need 1 ≤ first bar ≤ last bar")
-    if track < 0 or voice < 0 or (tempo is not None and tempo <= 0):
-        raise ValueError("track and voice count from 0; tempo must be positive")
-    return {"gp": str(gp_path), "track": track, "bars": f"{first_bar}-{last_bar}", "voice": voice,
-            "tempo_override_bpm": tempo, "tuning_shift": tuning_shift}
+    if tempo is not None and tempo <= 0:
+        raise ValueError("tempo must be positive")
+    common = {"bars": f"{first_bar}-{last_bar}", "tempo_override_bpm": tempo, "tuning_shift": tuning_shift}
+    if settings.get("midi"):
+        return {"midi": str(datasets.find_midi_file(str(settings["midi"]))), **common}
+    gp_path = datasets.find_gp_file(str(settings.get("gp", "")), list(datasets.roots))
+    try:
+        track, voice = int(settings["track"]), int(settings["voice"])
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError(f"passage settings incomplete or not numbers ({error})") from error
+    if track < 0 or voice < 0:
+        raise ValueError("track and voice count from 0")
+    return {"gp": str(gp_path), "track": track, "voice": voice, **common}
+
+
+def midi_song(midi_path: Path, run_config_path: Path) -> dict[str, Any]:
+    """A MIDI file as the page shows it: every note for the piano roll (chords included), the bars, and the whole
+    file as one passage on the run config's guitar (what the page plays back, as a tab placed lowest fret first).
+
+    Returns:
+        {"path", "name", "notes": [[onset_tick, end_tick, pitch]…], "ticks_per_bar", "bar_count", "passage",
+        "positions"}.
+    """
+    run_config = load_run_config(run_config_path)
+    content = read_midi_content(midi_path)
+    ticks_per_bar = round((content.beats_per_bar or run_config["midi_default_beats_per_bar"]) * TICKS_PER_QUARTER)
+    passage = passage_to_dict(load_source_passage({"midi": str(midi_path), "bars": None}, run_config_path))
+    return {"path": str(midi_path), "name": midi_path.stem, "notes": [list(note) for note in content.notes],
+            "ticks_per_bar": ticks_per_bar, "bar_count": max(end for _, end, _ in content.notes) // ticks_per_bar + 1,
+            "passage": passage, "positions": passage_note_positions(passage)}
 
 
 def passage_note_positions(passage: dict[str, Any]) -> list[list[dict[str, int]]]:
@@ -95,18 +125,34 @@ def load_run_view(run_path: Path) -> dict[str, Any]:
         raise ValueError(f"{run_path.name} is not a run file")
     return {"path": str(run_path), "name": run_path.name, "kind": kind, "label": label, "source": run["source"],
             "passage": run["passage"], "realisations": realisations,
-            "positions": passage_note_positions(run["passage"])}
+            "positions": passage_note_positions(run["passage"]), "chooser": run.get("chooser")}
+
+
+def catalogue_choice(settings: dict[str, Any]) -> dict[str, Any] | None:
+    """The catalogue the page picked for the chooser: {"build" (full path, or None = none), "members_only"}; None if
+    the request names none (the run config's then).
+
+    Raises:
+        ValueError: if the picked folder is not a catalogue build.
+    """
+    if "catalogue" not in settings:
+        return None
+    build = settings.get("catalogue") or None
+    if build is not None and not (Path(build) / "build_info.json").is_file():
+        raise ValueError(f"not a catalogue build: {build}")
+    return {"build": build, "members_only": bool(settings.get("members_only", True))}
 
 
 def optimise_passage(settings: dict[str, Any], datasets: DatasetIndex, run_config_path: Path) -> Path:
     """Run the optimiser on the page's passage and save the run (always); answers the run file's path.
 
     Args:
-        settings: Passage settings (see gp_source_from_settings) plus "k_best" (null = the run config's).
+        settings: Passage settings (see passage_source_from_settings) plus "k_best" (null = the run config's) and the
+            chooser's catalogue ("catalogue", "members_only"; see catalogue_choice).
         datasets: Where the GP file is looked up.
         run_config_path: The run config the Run button uses; its runs folder receives the run file.
     """
     k_best = int(settings["k_best"]) if settings.get("k_best") not in (None, "") else None
-    _, record = run_search(gp_source_from_settings(settings, datasets), k_best, comment=None,
-                           run_config_path=run_config_path)
+    _, record = run_search(passage_source_from_settings(settings, datasets), k_best, comment=None,
+                           run_config_path=run_config_path, catalogue=catalogue_choice(settings))
     return save_run_record(record, run_config_path)

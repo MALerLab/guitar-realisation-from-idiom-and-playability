@@ -34,7 +34,7 @@ paths:
   # Every result lands here: the repo's data/ folders are links into it.
   storage_root: ~/storage/grip
   # The run config the Run button uses (guitar, cost knobs, search settings, runs folder)
-  optimiser_run_config: configs/optimiser/optimiser_run_v1.2.yaml
+  optimiser_run_config: configs/optimiser/optimiser_run_v1.3.yaml
   # Reference passages saved from annotate mode (src/grip/calibration/reference_set.py); off git
   reference_set_folder: ~/storage/grip/calibration/reference_set
   # Junk flags set while browsing (corpus clean-up): one JSON file, off git (it names dataset songs)
@@ -76,3 +76,7 @@ catalogue:
 gp_files:
   # Extensions the file endpoint will serve
   allowed_extensions: [.gp3, .gp4, .gp5, .gpx, .gp]
+
+midi_files:
+  # MIDI files open as a piano roll (storage folder only), then Optimise like a tab
+  allowed_extensions: [.mid, .midi]

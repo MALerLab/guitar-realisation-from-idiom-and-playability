@@ -135,7 +135,7 @@ function fileRow(file, showFolderName) {
   if (file.junk_tracks) item.querySelector('.row-main').append(junkBadge(file));
   if (meta) item.append(Object.assign(document.createElement('div'), { className: 'row-meta', textContent: meta }));
   item.onclick = async () => {
-    const openers = { gp: (path) => openFile(path, 0), catalogue: openCatalogue };
+    const openers = { gp: (path) => openFile(path, 0), midi: (path) => openFile(path, 0), catalogue: openCatalogue };
     const opened = await (openers[file.kind] ?? showRunFile)(file.path);
     if (!opened) return;
     for (const selected of document.querySelectorAll('.file-list li.selected')) selected.classList.remove('selected');

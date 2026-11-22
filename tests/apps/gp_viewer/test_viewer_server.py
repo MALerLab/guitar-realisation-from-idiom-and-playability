@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlencode
 
+import mido
 import pandas as pd
 import pytest
 import yaml
@@ -129,6 +130,21 @@ def write_toy_catalogue(build: Path) -> None:
                                                                    "squash_repeats": True}}})
 
 
+def write_toy_midi(path: Path) -> Path:
+    """A one-bar MIDI file: four quarter notes, 64 66 68 69, at 120 bpm in 4/4."""
+    midi = mido.MidiFile(ticks_per_beat=480)
+    track = mido.MidiTrack()
+    track.append(mido.MetaMessage("set_tempo", tempo=mido.bpm2tempo(120)))
+    track.append(mido.MetaMessage("time_signature", numerator=4, denominator=4))
+    for pitch in (64, 66, 68, 69):
+        track.append(mido.Message("note_on", note=pitch, velocity=90, time=0))
+        track.append(mido.Message("note_off", note=pitch, velocity=0, time=480))
+    midi.tracks.append(track)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    midi.save(path)
+    return path
+
+
 def write_toy_storage(storage: Path) -> None:
     """A toy storage folder: two optimiser runs (older, newer), an existing-tool run, a GP file in an audit
     folder, and things the browser must hide (a text file, a non-run JSON, a DadaGP re-save, an empty folder)."""
@@ -144,6 +160,7 @@ def write_toy_storage(storage: Path) -> None:
     write_json(storage / "survey/package.json", {"name": "not a run"})
     (storage / "empty_folder").mkdir()
     write_toy_catalogue(storage / "catalogue/toy_build")
+    write_toy_midi(storage / "midi/toy_tune.mid")
 
 
 @pytest.fixture(scope="module")
@@ -172,6 +189,7 @@ def viewer(tmp_path_factory) -> dict[str, Any]:
         "browser": {"index_max_age_seconds": 0, "recent_count": 10, "hidden_name_endings": [".gp2tokens2gp.gp5"]},
         "catalogue": {"path_page_size": 50, "occurrence_page_size": 10, "builds_kept_open": 2, "player_tempo_bpm": 90},
         "gp_files": {"allowed_extensions": [".gp3", ".gp4", ".gp5", ".gpx", ".gp"]},
+        "midi_files": {"allowed_extensions": [".mid", ".midi"]},
     }
     config_path = folder / "viewer.yaml"
     config_path.write_text(yaml.safe_dump(config))
@@ -293,7 +311,7 @@ def test_gp_file_refusals_say_why_in_the_status_line(viewer):
 def test_storage_root_lists_only_folders_with_something_to_open(viewer):
     status, _, body, _ = get(viewer, "/api/storage", folder="")
     listing = json.loads(body)
-    assert status == 200 and listing["folders"] == ["audit", "catalogue", "existing_tool_runs", "optimiser_runs"]
+    assert status == 200 and listing["folders"] == ["audit", "catalogue", "existing_tool_runs", "midi", "optimiser_runs"]
     assert listing["files"] == [] and listing["root"] == str(viewer["storage"])
 
 
@@ -318,7 +336,8 @@ def test_storage_refuses_folders_outside_or_empty(viewer):
 def test_recent_lists_every_kind_newest_first(viewer):
     recent = json.loads(get(viewer, "/api/recent")[2])
     names = [file["name"] for file in recent]
-    assert set(names) == {"older_run.json", "newer_run.json", "toytool_run.json", "audit_copy.gp5", "toy_build"}
+    assert set(names) == {"older_run.json", "newer_run.json", "toytool_run.json", "audit_copy.gp5", "toy_build",
+                          "toy_tune.mid"}
     assert names.index("newer_run.json") < names.index("older_run.json")
 
 
@@ -452,6 +471,30 @@ def test_entries_of_a_realisation_answer_the_same_parts_as_stitch(viewer):
     assert post(viewer, "/api/entries", {**TOY_PASSAGE, "build": str(viewer["folder"]), "choices": choices})[0] == 404
 
 
+# ---- MIDI files: piano roll, then Optimise like a tab ----
+
+def test_midi_file_shows_in_storage_and_opens_with_its_notes_and_passage(viewer):
+    listing = json.loads(get(viewer, "/api/storage", folder="midi")[2])
+    assert [(file["name"], file["kind"]) for file in listing["files"]] == [("toy_tune.mid", "midi")]
+    status, _, body, _ = get(viewer, "/api/midi", path=str(viewer["storage"] / "midi/toy_tune.mid"))
+    song = json.loads(body)
+    assert status == 200 and [note[2] for note in song["notes"]] == [64, 66, 68, 69]
+    assert song["ticks_per_bar"] == 3840 and song["bar_count"] == 2  # the last note ends on bar 2's first tick
+    assert len(song["passage"]["notes"]) == 4 and all(song["positions"])
+    assert get(viewer, "/api/midi", path=str(viewer["folder"] / "nothing.mid"))[0] == 404
+
+
+def test_lr_knob_sweep_and_optimise_take_a_midi_passage(viewer):
+    passage = {"midi": str(viewer["storage"] / "midi/toy_tune.mid"), "first_bar": 1, "last_bar": 1,
+               "tempo_override_bpm": None, "tuning_shift": 0}
+    status, reply = post(viewer, "/api/optimiser/lr_knob_sweep", passage)
+    assert status == 200, reply
+    assert reply["source"]["midi"].endswith("toy_tune.mid") and len(reply["passage"]["notes"]) == 4
+    status, reply = post(viewer, "/api/entries", {**passage, "build": str(viewer["storage"] / "catalogue/toy_build"),
+                                                  "choices": []})
+    assert status == 400 and "GP tab" in reply["error"]
+
+
 # ---- junk flags ----
 
 def test_flag_a_track_as_junk_then_clear_it(viewer):
@@ -523,6 +566,19 @@ def test_lr_knob_sweep_answers_segments_covering_the_lr_knob(viewer):
     assert all(a["lr_knob_to"] == pytest.approx(b["lr_knob_from"]) for a, b in zip(segments, segments[1:]))
     assert all({"choices", "moves", "total_cost"} <= set(segment["realisation"]) for segment in segments)
     assert reply["terms"]["string_change"] == "picking" and reply["terms"]["hand_shift"] == "fretting"
+
+
+def test_lr_knob_sweep_runs_the_chooser_on_the_picked_catalogue(viewer):
+    build = str(viewer["storage"] / "catalogue/toy_build")
+    status, reply = post(viewer, "/api/optimiser/lr_knob_sweep", {**TOY_PASSAGE, "catalogue": build, "members_only": True})
+    assert status == 200, reply
+    # The toy build's entries never fit this passage: an empty menu, every note loose
+    assert reply["chooser"]["build"] == build and reply["chooser"]["menu_items"] == 0
+    assert all(segment["realisation"]["blocks"] == [] for segment in reply["segments"])
+    status, reply = post(viewer, "/api/optimiser/lr_knob_sweep", {**TOY_PASSAGE, "catalogue": None})
+    assert status == 200 and reply["chooser"] is None
+    status, reply = post(viewer, "/api/optimiser/lr_knob_sweep", {**TOY_PASSAGE, "catalogue": str(viewer["folder"])})
+    assert status == 400 and "not a catalogue build" in reply["error"]
 
 
 def test_lr_knob_sweep_overrides_reach_the_sweep_for_that_sweep_only(viewer):

@@ -1,18 +1,15 @@
-// GRIP viewer, Stitch + Entries: catalogue blocks on top of the tab (server: stitch.py).
-//   - Stitch = Optimise with the "catalogue" method: rebuild the Bars box's passage out of the picked catalogue's
-//     entries, shown like a run with one realisation. Two modes: position preserved (blocks only on the tab's own
-//     strings and frets) and notes only (Stitch places each block where its notes fit).
-//   - Entries = the same blocks for whatever realisation is on screen (an optimiser run, a segment of the lr-knob
-//     sweep, an annotation), on that realisation's own strings and frets; on / off from the top bar.
-// Either way: a thin box per block (a block that wraps onto the next line gets a box per line) with a badge
-// (hover = its entry, click = open it in the catalogue view), and the notes no block holds in red (where the glue
-// notes go). viewer.mjs calls setupStitch once at start, runStitch from the Optimise button, and asks for the marks.
+// GRIP viewer, Entries: which catalogue entries the tab on screen is made of, drawn on top of it.
+//   - a tab the chooser made (Optimise or the Optimiser view with a catalogue picked): the entries it played
+//   - any other tab (a run without the chooser, an annotation): the entries of the picked catalogue it is made of,
+//     on its own strings and frets (server: stitch.py, /api/entries)
+// A thin box per block (a block that wraps onto the next line gets a box per line) with a badge (hover = its entry,
+// click = open it in the catalogue view), and the notes no block holds in red (where the glue notes go).
+// viewer.mjs calls setupStitch once at start and asks for the marks after every drawing.
 import * as alphaTab from '/alphatab/alphaTab.mjs';
 
 // What viewer.mjs shares, set once by setupStitch
-let element, statusLabel, api, state, postJson, remember, recall, readSettings, sameSettings, renderView;
-let confirmDiscardAnnotation, openRunView, openCatalogueEntry, currentBeatMap, buildBeatMap, currentCatalogue;
-let shownPassage, shownPassageSettings;
+let element, statusLabel, api, state, postJson, remember, recall, renderView;
+let openCatalogueEntry, currentBeatMap, buildBeatMap, currentCatalogue, shownPassage, shownPassageSettings;
 
 const UNCOVERED_COLOUR = new alphaTab.model.Color(192, 57, 43);
 // Room (px) between a block's notes and its box; the badge sits just above the box
@@ -21,24 +18,17 @@ const BADGE_RISE = 14;
 // Entries answers kept in this page (dragging the lr-knob back and forth asks for the same tabs again)
 const ENTRIES_KEPT = 64;
 
-let mode = 'position';
 let entriesOn = false;
 const entriesAnswers = new Map();  // request key → the server's answer
 let entriesPending = null;          // request key being asked for
 
-/** Take what viewer.mjs shares and wire the controls. Returns { runStitch, colourUncovered, drawBlockBoxes, updateEntriesButton }. */
+/** Take what viewer.mjs shares and wire the controls. Returns { colourUncovered, drawBlockBoxes, updateEntriesButton, membersOnly }. */
 export function setupStitch(viewer) {
-  ({ element, statusLabel, api, state, postJson, remember, recall, readSettings, sameSettings, renderView } = viewer);
-  ({ confirmDiscardAnnotation, openRunView, openCatalogueEntry, currentBeatMap, buildBeatMap, currentCatalogue } = viewer);
-  ({ shownPassage, shownPassageSettings } = viewer);
-  mode = recall('stitchMode', 'position');
-  markMode();
-  for (const button of document.querySelectorAll('#stitch-mode button')) {
-    button.onclick = () => { mode = button.dataset.mode; remember('stitchMode', mode); markMode(); };
-  }
-  element('stitch-members-only').checked = recall('stitchMembersOnly', '1') === '1';
-  element('stitch-members-only').onchange = () => {
-    remember('stitchMembersOnly', element('stitch-members-only').checked ? '1' : '0');
+  ({ element, statusLabel, api, state, postJson, remember, recall, renderView } = viewer);
+  ({ openCatalogueEntry, currentBeatMap, buildBeatMap, currentCatalogue, shownPassage, shownPassageSettings } = viewer);
+  element('menu-members-only').checked = recall('menuMembersOnly', '1') === '1';
+  element('menu-members-only').onchange = () => {
+    remember('menuMembersOnly', element('menu-members-only').checked ? '1' : '0');
     if (entriesOn) renderView(true);
   };
   entriesOn = recall('entriesOn', '0') === '1';
@@ -47,52 +37,45 @@ export function setupStitch(viewer) {
     remember('entriesOn', entriesOn ? '1' : '0');
     renderView(true);
   };
-  return { runStitch, colourUncovered, drawBlockBoxes, updateEntriesButton };
+  return { colourUncovered, drawBlockBoxes, updateEntriesButton, membersOnly };
 }
 
-function markMode() {
-  for (const button of document.querySelectorAll('#stitch-mode button')) {
-    button.setAttribute('aria-pressed', String(button.dataset.mode === mode));
-  }
+/** The "members only" tick: the chooser's menu and Entries use only entries past the membership line. */
+function membersOnly() {
+  return element('menu-members-only').checked;
 }
 
-/** Stitch the Bars box's passage out of the picked catalogue and show it like a run. Keeps an annotation of the same passage. */
-async function runStitch() {
-  const settings = readSettings();
-  if (!settings) return;
-  const build = currentCatalogue();
-  if (!build) {
-    statusLabel.textContent = 'pick a catalogue first (top bar, left)';
-    return;
-  }
-  const keepAnnotation = state.annotation && sameSettings(state.annotation.settings, settings);
-  if (state.annotation && !keepAnnotation && !confirmDiscardAnnotation('Stitch a different passage')) return;
-  const button = element('run-button');
-  button.disabled = true;
-  element('run-popover').hidden = true;
-  statusLabel.textContent = 'stitching…';
-  const reply = await postJson('/api/stitch', { ...settings, build, mode, members_only: element('stitch-members-only').checked });
-  button.disabled = false;
-  if (reply.error) {
-    statusLabel.textContent = `Stitch failed: ${reply.error}`;
-    return;
-  }
-  api.stop();
-  await openRunView({ ...reply, path: null }, keepAnnotation);
-  statusLabel.textContent = reply.report.at(-1) ?? '';
+// ---- The chooser's own entries ----
+
+/** What the chooser ran with for the tab on screen ({ build, menu_items, … }), or null (no chooser behind it). */
+function chooserOfShown() {
+  if (state.view?.kind === 'realisation') return state.run?.chooser ?? null;
+  if (state.view?.kind === 'segment') return state.sweep?.chooser ?? null;
+  return null;
 }
 
-// ---- Entries: the blocks of whatever realisation is on screen ----
+/** The chooser's blocks for the tab on screen, the loose notes as the uncovered ones; null if no chooser made it. */
+function chooserBlocks() {
+  const chooser = chooserOfShown();
+  const shown = shownPassage();
+  if (!chooser || !shown?.realisation) return null;
+  const blocks = shown.realisation.blocks ?? [];
+  const covered = new Set(blocks.flatMap((block) => block.passage_indices));
+  const uncovered = shown.passage.notes.map((note, index) => index).filter((index) => shown.passage.notes[index].pitch !== null && !covered.has(index));
+  return { build: chooser.build, blocks, uncovered };
+}
 
-/** The Entries request for what is on screen ({ key, body }), or null if Entries can't apply (off, no catalogue,
- *  a Stitch run (it shows its own blocks), the catalogue player, or a passage with no GP file behind it). */
+// ---- Entries of any other tab ----
+
+/** The Entries request for what is on screen ({ key, body }), or null if it can't apply (no catalogue, the catalogue
+ *  player, or a passage with no GP file behind it). */
 function entriesRequest() {
-  if (!entriesOn || !currentCatalogue() || (state.run?.kind === 'stitch' && state.view?.kind === 'realisation')) return null;
+  if (!currentCatalogue()) return null;
   const shown = shownPassage();
   const settings = shown && state.view.kind !== 'phrase' ? shownPassageSettings() : null;
   if (!settings) return null;
   const choices = shown.choices.map((choice) => ({ passage_index: choice.passage_index, string: choice.string, fret: choice.fret }));
-  const body = { ...settings, build: currentCatalogue(), members_only: element('stitch-members-only').checked, choices };
+  const body = { ...settings, build: currentCatalogue(), members_only: membersOnly(), choices };
   return { key: JSON.stringify(body), body };
 }
 
@@ -109,22 +92,24 @@ async function fetchEntries(request) {
   }
   entriesAnswers.set(request.key, reply);
   if (entriesAnswers.size > ENTRIES_KEPT) entriesAnswers.delete(entriesAnswers.keys().next().value);
-  if (entriesRequest()?.key !== request.key) return;  // the tab changed meanwhile
+  if (!entriesOn || entriesRequest()?.key !== request.key) return;  // the tab changed meanwhile
   statusLabel.textContent = `entries: ${reply.report.at(-1)}`;
   renderView(true);
 }
 
-/** The Entries button: on only while a catalogue is picked; pressed while Entries is on. */
+/** The Entries button: on while a catalogue is picked or the tab on screen came from the chooser; pressed while on. */
 function updateEntriesButton() {
   const button = element('entries-toggle');
-  button.disabled = !currentCatalogue();
+  button.disabled = !currentCatalogue() && !chooserOfShown();
   button.setAttribute('aria-pressed', String(entriesOn && !button.disabled));
 }
 
-/** The blocks and uncovered notes to mark on the tab on screen: the open Stitch's, or the Entries of what is shown
- *  (null until the server answers; asking it is started here). */
+/** The blocks and uncovered notes to mark on the tab on screen (null = none): the chooser's own while it made the
+ *  tab, else the Entries of the picked catalogue (null until the server answers; asking it is started here). */
 function shownStitch() {
-  if (state.view?.kind === 'realisation' && state.run?.kind === 'stitch') return state.run.stitch;
+  if (!entriesOn) return null;
+  const fromChooser = chooserBlocks();
+  if (fromChooser) return fromChooser;
   const request = entriesRequest();
   if (!request) return null;
   const answer = entriesAnswers.get(request.key);

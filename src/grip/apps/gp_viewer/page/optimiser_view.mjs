@@ -6,7 +6,7 @@
 //     the next lr-knob sweep (never written to configs/), and can be saved as a preset
 // Keys: , / . (also < / >) = previous / next tab along the lr-knob (same spots on Colemak-DH).
 
-let element, statusLabel, api, state, postJson, renderView, readSettings, sameSettings, currentMode;
+let element, statusLabel, api, state, postJson, renderView, readSettings, sameSettings, currentMode, catalogueRequest;
 let drawSelectionBoxes, updateFretboard;
 
 // The slider's resolution (positions from one end of the lr-knob to the other)
@@ -30,7 +30,7 @@ let hoveredNote = null;
 
 /** Wire up the lr-knob, the cost strip and the knob form. Returns what viewer.mjs calls. */
 export function setupOptimiserView(viewer) {
-  ({ element, statusLabel, api, state, postJson, renderView, readSettings, sameSettings, currentMode } = viewer);
+  ({ element, statusLabel, api, state, postJson, renderView, readSettings, sameSettings, currentMode, catalogueRequest } = viewer);
   ({ drawSelectionBoxes, updateFretboard } = viewer);
   element('lr-knob-slider').oninput = () => setLrKnob(fractionToLrKnob(Number(element('lr-knob-slider').value) / SLIDER_STEPS));
   // Let go of the slider: focus goes back, so Space plays and , / . step again
@@ -44,7 +44,8 @@ export function setupOptimiserView(viewer) {
 
 // ---- The lr-knob sweep ----
 
-/** Entering the view: run an lr-knob sweep on the song view's bars, unless the last one was on the same bars. */
+/** Entering the view: run an lr-knob sweep on the Bars box's passage, unless the last one was on the same bars with
+ *  the same catalogue (the chooser's). */
 async function enter() {
   const settings = readSettings();  // says in the status line what's missing
   if (!settings) {
@@ -52,7 +53,8 @@ async function enter() {
     renderView();
     return;
   }
-  if (state.sweep && sameSettings(state.sweep.settings, settings)) return;
+  if (state.sweep && sameSettings(state.sweep.settings, settings)
+      && state.sweep.catalogueKey === JSON.stringify(catalogueRequest())) return;
   await runSweep(settings);
 }
 
@@ -79,7 +81,8 @@ async function runSweep(settings) {
   const started = Date.now();
   const seconds = () => Math.round((Date.now() - started) / 100) / 10;
   const timer = setInterval(() => { statusLabel.textContent = `lr-knob sweep… ${Math.round(seconds())} s`; }, 500);
-  const reply = await postJson('/api/optimiser/lr_knob_sweep', { ...settings, overrides: structuredClone(overrides) });
+  const catalogue = catalogueRequest();
+  const reply = await postJson('/api/optimiser/lr_knob_sweep', { ...settings, ...catalogue, overrides: structuredClone(overrides) });
   clearInterval(timer);
   if (sweepId !== newestSweep) return;
   if (reply.error) {
@@ -92,7 +95,7 @@ async function runSweep(settings) {
   emptyText = 'Pick bars in the Song view (drag over them), then come back here.';
   statusLabel.textContent = `lr-knob sweep: ${tabs} tab${tabs === 1 ? '' : 's'} in ${seconds()} s`;
   const lrKnobValue = samePassage ? clamp(state.sweep.lrKnobValue, reply.lr_knob.min, reply.lr_knob.max) : reply.lr_knob.default;
-  state.sweep = { ...reply, settings, lrKnobValue };
+  state.sweep = { ...reply, settings, lrKnobValue, catalogueKey: JSON.stringify(catalogue) };
   stripScale = costStripScale();
   if (currentMode() !== 'optimiser') return;
   state.view = viewOfSweep();
@@ -216,15 +219,19 @@ function drawLrKnob() {
 
 // ---- The cost strip ----
 
-/** Each passage note's cost on one realisation, split by hand (null for a note with no move: chords, rests). */
+/** Each passage note's cost on one realisation, split by hand, + the chooser's glue (null for a note with no move:
+ *  chords, rests). */
 function noteCosts(realisation) {
   const moveOfNote = new Map(realisation.moves.map((move) => [move.passage_index, move]));
   return state.sweep.passage.notes.map((_, index) => {
     const move = moveOfNote.get(index);
     if (!move) return null;
-    const cost = { fretting: 0, picking: 0, terms: move.terms };
-    // A term the sweep doesn't tag counts for the fretting hand (the sweep tags every term it charges)
-    for (const [term, value] of Object.entries(move.terms)) cost[state.sweep.terms[term] === 'picking' ? 'picking' : 'fretting'] += value;
+    const cost = { fretting: 0, picking: 0, glue: 0, terms: move.terms };
+    // Glue belongs to neither hand; a term the sweep doesn't tag counts for the fretting hand (it tags every term it charges)
+    for (const [term, value] of Object.entries(move.terms)) {
+      const group = state.sweep.terms[term];
+      cost[group === 'picking' || group === 'glue' ? group : 'fretting'] += value;
+    }
     return cost;
   });
 }
@@ -300,10 +307,12 @@ function drawCostStrip() {
   chart.replaceChildren(svg);
 }
 
-/** The line over the strip: each hand's total for the tab shown, and the total the lr-knob makes of them. */
+/** The line over the strip: each hand's total for the tab shown, the chooser's glue, and the total the lr-knob
+ *  makes of them (the strip's bars show the hands only). */
 function drawTotals(costs, lrKnob) {
   const fretting = costs.reduce((sum, cost) => sum + (cost?.fretting ?? 0), 0);
   const picking = costs.reduce((sum, cost) => sum + (cost?.picking ?? 0), 0);
+  const glue = costs.reduce((sum, cost) => sum + (cost?.glue ?? 0), 0);
   const part = (text, className = null) => {
     const span = document.createElement('span');
     span.textContent = text;
@@ -313,7 +322,8 @@ function drawTotals(costs, lrKnob) {
   element('cost-strip-totals').replaceChildren(
     part('fretting '), part(fretting.toFixed(2), 'fretting'),
     part(` · picking ${picking.toFixed(2)} × lr-knob ${formatLrKnob(lrKnob)} = `), part((picking * lrKnob).toFixed(2), 'picking'),
-    part(` · total ${(fretting + picking * lrKnob).toFixed(2)}`),
+    ...(state.sweep.chooser ? [part(` · glue ${glue.toFixed(2)} (${(state.sweep.segments[state.view.index].realisation.blocks ?? []).length} entries)`)] : []),
+    part(` · total ${(fretting + picking * lrKnob + glue).toFixed(2)}`),
     part('   hover a note for its costs, click to mark it on the tab', 'hint'),
   );
 }
@@ -327,11 +337,13 @@ function noteCostText(index) {
   const lines = [`note ${index + 1} · ${where}${choice?.finger ? ` · finger ${choice.finger}` : ''}`];
   if (!cost) return [...lines, 'no cost (not a single picked or fretted note)'].join('\n');
   const paid = (hand) => Object.entries(cost.terms)
-    .filter(([term, value]) => value !== 0 && (state.sweep.terms[term] === 'picking') === (hand === 'picking'))
+    .filter(([term, value]) => value !== 0 && state.sweep.terms[term] !== 'glue'
+      && (state.sweep.terms[term] === 'picking') === (hand === 'picking'))
     .map(([term, value]) => `${term} ${value.toFixed(2)}`).join(', ') || 'nothing';
   const lrKnob = state.sweep.lrKnobValue;
   lines.push(`fretting ${cost.fretting.toFixed(2)}: ${paid('fretting')}`);
   lines.push(`picking ${cost.picking.toFixed(2)} × lr-knob ${formatLrKnob(lrKnob)} = ${(cost.picking * lrKnob).toFixed(2)}: ${paid('picking')}`);
+  if (cost.glue > 0) lines.push(`glue ${cost.glue.toFixed(2)}: a cut between catalogue entries`);
   return lines.join('\n');
 }
 

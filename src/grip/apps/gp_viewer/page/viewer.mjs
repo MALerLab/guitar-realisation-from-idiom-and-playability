@@ -7,7 +7,8 @@
 //   file_picker.mjs      path box, the Datasets tab (songs / tracks search)
 //   flags.mjs            junk flags: the flag box (song view's top bar, catalogue player)
 //   optimiser_view.mjs   the Optimiser view: the lr-knob (an lr-knob sweep's segments), the cost strip, the knob form, presets
-//   stitch.mjs           Optimise by catalogue (Stitch), the Entries overlay, their block boxes + uncovered notes
+//   piano_roll.mjs       a MIDI file in the song view: the piano roll, picking bars on it, the playhead
+//   stitch.mjs           the Entries overlay: block boxes + uncovered notes (the chooser's, or any tab's)
 //   storage_browser.mjs  the Files tab: recent files + the storage folder as on disk
 //   transport.mjs        the transport bar: play / pause, bars, scrub, loop, speed, their keys
 //   fretboard.mjs        the fretboard drawer, and the tuning label's text
@@ -21,6 +22,7 @@ import { setupFilePicker } from '/file_picker.mjs';
 import { setupFlags } from '/flags.mjs';
 import { setupFretboard, tuningText } from '/fretboard.mjs';
 import { setupOptimiserView } from '/optimiser_view.mjs';
+import { setupPianoRoll } from '/piano_roll.mjs';
 import { setupStitch } from '/stitch.mjs';
 import { setupStorageBrowser } from '/storage_browser.mjs';
 import { setupTrackMixer } from '/track_mixer.mjs';
@@ -54,7 +56,8 @@ fileSettings.importer.encoding = pageConfig.text_encoding;
 // ---- Page state ----
 
 const state = {
-  song: null,         // the open song (GP file): { path, trackIndex, score, mixer (track_mixer.mjs: track index → sound settings) }
+  song: null,         // the open song: a GP file { path, trackIndex, score, mixer (track_mixer.mjs: track index → sound settings) },
+                      //   or a MIDI file { kind: 'midi', path, trackIndex: 0, score (its hidden playback tab), midi (/api/midi) }
   songFlags: {},      // the open song's junk flags: track index (as text) → flag
   run: null,          // the open run (optimiser, existing tool or stitch): { path, name, kind, label, run: { source, passage, realisations }, positions,
                       //   stitch (kind 'stitch' only: { build, mode, members_only, blocks, uncovered }) }
@@ -107,12 +110,17 @@ function confirmDiscardAnnotation(action) {
 /** True if two passage settings name the same passage (file, track, bars, voice, tempo, tuning shift). */
 function sameSettings(a, b) {
   if (!a || !b) return false;
-  const key = (s) => JSON.stringify([s.gp, s.track, s.first_bar, s.last_bar, s.voice, s.tempo_override_bpm ?? null, s.tuning_shift]);
+  const key = (s) => JSON.stringify([s.gp ?? s.midi, s.track, s.first_bar, s.last_bar, s.voice, s.tempo_override_bpm ?? null, s.tuning_shift]);
   return key(a) === key(b);
 }
 
 /** Passage settings from a run source ("bars": "17-28"); tuning shift worked out for old runs that stored a tuning override. */
 function settingsFromSource(source) {
+  if (source?.midi) {
+    const [firstBar, lastBar] = source.bars ? source.bars.split('-').map(Number) : [null, null];
+    return { midi: source.midi, first_bar: firstBar, last_bar: lastBar, tempo_override_bpm: source.tempo_override_bpm ?? null,
+             tuning_shift: source.tuning_shift ?? 0 };
+  }
   if (!source?.gp) return null;
   const [firstBar, lastBar] = source.bars.split('-').map(Number);
   return {
@@ -134,12 +142,15 @@ function tuningShiftFromOverride(source) {
 /** The run bar's passage settings for the open GP file, or null (with a status message) if incomplete. */
 function readSettings() {
   const number = (id) => (element(id).value === '' ? null : Number(element(id).value));
-  const settings = {
-    gp: state.song?.path, track: state.song?.trackIndex, first_bar: number('first-bar'), last_bar: number('last-bar'),
-    voice: number('voice') ?? 0, tempo_override_bpm: number('tempo'), tuning_shift: number('tuning-shift') ?? 0,
+  const common = {
+    first_bar: number('first-bar'), last_bar: number('last-bar'), tempo_override_bpm: number('tempo'),
+    tuning_shift: number('tuning-shift') ?? 0,
   };
-  if (!settings.gp) {
-    statusLabel.textContent = 'open a GP file first';
+  const settings = state.song?.kind === 'midi'
+    ? { midi: state.song.path, ...common }
+    : { gp: state.song?.path, track: state.song?.trackIndex, voice: number('voice') ?? 0, ...common };
+  if (!settings.gp && !settings.midi) {
+    statusLabel.textContent = 'open a GP or MIDI file first';
     return null;
   }
   if (settings.first_bar === null || settings.last_bar === null) {
@@ -193,6 +204,11 @@ function shownPassageSettings() {
 /** The catalogue picked in the top bar (its folder, full path), or null. */
 function currentCatalogue() {
   return element('catalogue-select').value || null;
+}
+
+/** What Optimise and the Optimiser view send for the chooser: the picked catalogue (null = the hand models alone). */
+function catalogueRequest() {
+  return { catalogue: currentCatalogue(), members_only: stitch.membersOnly() };
 }
 
 /** Which view shows: 'song', 'catalogue' or 'optimiser'. */
@@ -264,7 +280,7 @@ const viewer = {
   renderView, shownPassage, choicesDiffer, changedFromStart, currentBeatMap, updateDropdowns, openFile, showTrack,
   showRunFile, onFileOpened, openCatalogue, openPhrase, setView, showPhrase, currentMode,
   readSettings, sameSettings, confirmDiscardAnnotation, openRunView, openCatalogueEntry, buildBeatMap,
-  shownPassageSettings, currentCatalogue,
+  shownPassageSettings, currentCatalogue, catalogueRequest,
 };
 const flags = setupFlags(viewer);
 // The catalogue player flags tracks too
@@ -281,6 +297,7 @@ const filePicker = setupFilePicker(viewer);
 const catalogueView = setupCatalogueView(viewer);
 const stitch = setupStitch(viewer);
 const optimiserView = setupOptimiserView(viewer);
+const pianoRoll = setupPianoRoll(viewer);
 const storageBrowser = setupStorageBrowser(viewer);
 
 // ---- Drawing ----
@@ -317,6 +334,7 @@ function renderView(keepScroll = false) {
   updateButtons();
   annotate.updatePanel();
   optimiserView.updateView();
+  pianoRoll.draw();
   mixer.updateMixer();
   mixer.applyMixer();
 }
@@ -326,6 +344,14 @@ function renderView(keepScroll = false) {
 function updatePanels() {
   const mode = currentMode();
   document.body.classList.toggle('has-score', state.view !== null);
+  const midiSong = mode === 'song' && state.view?.kind === 'song' && state.song?.kind === 'midi';
+  document.body.classList.toggle('midi-song', midiSong);
+  // The hidden playback tab mustn't scroll the page; the piano roll keeps its own playhead in view
+  const scrollMode = midiSong ? alphaTab.ScrollMode.Off : alphaTab.ScrollMode.Continuous;
+  if (api.settings.player.scrollMode !== scrollMode) {
+    api.settings.player.scrollMode = scrollMode;
+    api.updateSettings();
+  }
   document.body.classList.toggle('details-open', (shownPassage() !== null && mode === 'song') || mode === 'optimiser');
   element('mixer-empty').hidden = Boolean(state.song);
   const hints = {
@@ -406,9 +432,11 @@ function updateButtons() {
   element('view-switch').querySelector('[data-view=optimiser]').disabled = !state.song;
   stitch.updateEntriesButton();
   if (!state.song) closePopovers();
-  element('edit-button').disabled = !(state.view?.kind === 'song' || state.view?.kind === 'realisation');
+  const midiSong = state.song?.kind === 'midi';
+  // Annotating and junk flags need a GP tab's track
+  element('edit-button').disabled = midiSong || !(state.view?.kind === 'song' || state.view?.kind === 'realisation');
   element('save-button').disabled = !state.annotation;
-  flags.showFlagButton(element('flag-button'), state.songFlags[String(state.song?.trackIndex)], state.view?.kind === 'song');
+  flags.showFlagButton(element('flag-button'), state.songFlags[String(state.song?.trackIndex)], state.view?.kind === 'song' && !midiSong);
 }
 
 /** The song view's junk button: flag the shown track, or every track of the song. */
@@ -452,12 +480,39 @@ async function loadSong(path, trackIndex, searched = []) {
   return true;
 }
 
-/** Open a GP file on one track; closes any run and annotation. True if it opened. */
+/** True if a path names a MIDI file (by its extension). */
+function isMidiPath(path) {
+  return pageConfig.midi_extensions.some((extension) => path.toLowerCase().endsWith(extension));
+}
+
+/** Fetch a MIDI file and make it the open song: its notes for the piano roll, and the whole file as a tab placed
+ *  lowest fret first for playback; false (with a status message) if that fails. */
+async function loadMidiSong(path) {
+  statusLabel.textContent = 'loading…';
+  const response = await fetch(`/api/midi?${new URLSearchParams({ path })}`);
+  if (!response.ok) {
+    statusLabel.textContent = `server: ${response.status} ${response.statusText}`;
+    return false;
+  }
+  const midi = await response.json();
+  const choices = midi.passage.notes.map((note, index) => {
+    const lowest = midi.positions[index].reduce((best, position) => (!best || position.fret < best.fret ? position : best), null);
+    return { passage_index: index, string: lowest?.string ?? null, fret: lowest?.fret ?? null, finger: 0, stroke_letter: null, hand: null };
+  });
+  const tex = choicesToTex(midi.passage, choices, midi.name, 'MIDI (played back on the lowest frets)');
+  state.song = { kind: 'midi', path: midi.path, trackIndex: 0, score: alphaTab.importer.ScoreLoader.loadAlphaTex(tex, new alphaTab.Settings()), midi };
+  state.songFlags = {};
+  element('path-input').value = midi.path;
+  statusLabel.textContent = '';
+  return true;
+}
+
+/** Open a GP file on one track, or a MIDI file (piano roll); closes any run and annotation. True if it opened. */
 async function openFile(path, trackIndex = 0, searched = []) {
   if (!confirmDiscardAnnotation('Open another file')) return false;
   if (currentMode() !== 'song') setView('song', false);
   api.stop();
-  if (!(await loadSong(path, trackIndex, searched))) return false;
+  if (!(await (isMidiPath(path) ? loadMidiSong(path) : loadSong(path, trackIndex, searched)))) return false;
   Object.assign(state, { run: null, annotation: null, view: { kind: 'song' }, selection: [], draggedBeats: null });
   filePicker.clearListSelection();
   fillRunBar(null);
@@ -497,7 +552,9 @@ async function openRunView(view, keepAnnotation = false) {
   const source = view.source;
   if (source.gp && state.song?.path !== source.gp) {
     if (!(await loadSong(source.gp, source.track))) return false;
-  } else if (!source.gp) {
+  } else if (source.midi && state.song?.path !== source.midi) {
+    if (!(await loadMidiSong(source.midi))) return false;
+  } else if (!source.gp && !source.midi) {
     state.song = null;
   }
   if (state.song) state.song.trackIndex = source.track ?? state.song.trackIndex;
@@ -557,7 +614,7 @@ async function runOptimiser() {
   const started = Date.now();
   const timer = setInterval(() => { statusLabel.textContent = `running optimiser… ${Math.round((Date.now() - started) / 1000)} s`; }, 500);
   const kBest = element('k-best').value;
-  const reply = await postJson('/api/optimise', { ...settings, k_best: kBest === '' ? null : Number(kBest) });
+  const reply = await postJson('/api/optimise', { ...settings, ...catalogueRequest(), k_best: kBest === '' ? null : Number(kBest) });
   clearInterval(timer);
   runButton.disabled = false;
   if (reply.error) {
@@ -568,21 +625,14 @@ async function runOptimiser() {
   storageBrowser.refresh();
   await showRun(reply.path, keepAnnotation);
 }
-// Optimise by the picked method: the hand models (the optimiser) or the catalogue (Stitch); remembered
-let optimiseMethod = recall('optimiseMethod', 'hand-models');
-/** Show the picked method in the pop-up: its button pressed, only its settings shown. */
-function markOptimiseMethod() {
-  for (const button of document.querySelectorAll('#optimise-method button')) {
-    button.setAttribute('aria-pressed', String(button.dataset.method === optimiseMethod));
-  }
-  for (const part of document.querySelectorAll('#run-popover [data-method-only]')) part.hidden = part.dataset.methodOnly !== optimiseMethod;
-  element('catalogue-missing').hidden = Boolean(currentCatalogue());
+/** The pop-up's line on what Optimise will use: the hand models, + the chooser on the picked catalogue. */
+function updateChooserLine() {
+  const catalogue = element('catalogue-select').selectedOptions[0];
+  element('chooser-line').textContent = currentCatalogue()
+    ? `hand models + chooser on ${catalogue.textContent}`
+    : 'hand models alone (pick a catalogue at the left of the top bar for the chooser)';
 }
-for (const button of document.querySelectorAll('#optimise-method button')) {
-  button.onclick = () => { optimiseMethod = button.dataset.method; remember('optimiseMethod', optimiseMethod); markOptimiseMethod(); };
-}
-markOptimiseMethod();
-element('run-button').onclick = () => (optimiseMethod === 'catalogue' ? stitch.runStitch() : runOptimiser());
+element('run-button').onclick = runOptimiser;
 
 // The Optimise pop-up opens under its button; Esc or a click elsewhere closes it
 function closePopovers() {
@@ -592,12 +642,13 @@ element('run-toggle').onclick = () => {
   const opening = element('run-popover').hidden;
   closePopovers();
   element('run-popover').hidden = !opening;
-  if (opening) markOptimiseMethod();
+  if (opening) updateChooserLine();
 };
 
 // A new passage typed in the Bars box while the Optimiser view shows: sweep it
 for (const id of ['first-bar', 'last-bar']) {
   element(id).addEventListener('change', () => { if (currentMode() === 'optimiser') optimiserView.enter(); });
+  element(id).addEventListener('input', () => pianoRoll.markChosenBars());  // the roll shades the bars typed
 }
 document.addEventListener('pointerdown', (event) => {
   if (!event.target.closest('.popover-anchor')) closePopovers();
@@ -715,8 +766,7 @@ async function openCatalogue(folder, showView = true) {
     await fillCatalogueChoice(folder);
     remember('catalogue', folder);
     element('view-switch').querySelector('[data-view=catalogue]').disabled = false;
-    markOptimiseMethod();
-    renderView(true);  // Entries follow the new catalogue
+    catalogueChanged();
   }
   return opened;
 }
@@ -744,9 +794,15 @@ element('catalogue-select').onchange = async () => {
   remember('catalogue', '');
   element('view-switch').querySelector('[data-view=catalogue]').disabled = true;
   if (currentMode() === 'catalogue') setView('song');
-  markOptimiseMethod();
-  renderView(true);
+  catalogueChanged();
 };
+
+/** After the catalogue pick changes: Entries follow it, the Optimiser view sweeps again with the chooser on it. */
+function catalogueChanged() {
+  updateChooserLine();
+  renderView(true);
+  if (currentMode() === 'optimiser') optimiserView.enter();
+}
 // New builds show up once the pointer comes over the pick (refilling while it is open would close it)
 element('catalogue-select').addEventListener('pointerenter', () => fillCatalogueChoice());
 

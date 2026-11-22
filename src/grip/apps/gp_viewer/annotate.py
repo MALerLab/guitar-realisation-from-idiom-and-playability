@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from grip.apps.gp_viewer.datasets import DatasetIndex
-from grip.apps.gp_viewer.runs import gp_source_from_settings, passage_note_positions
+from grip.apps.gp_viewer.runs import passage_source_from_settings, passage_note_positions
 from grip.calibration.reference_set import (annotation_problems, check_save, is_safe_file_name, reference_name_base,
                                            save_annotation, source_tab_draft)
 from grip.formats.run_record import passage_to_dict
@@ -16,7 +16,7 @@ def cut_passage(settings: dict[str, Any], datasets: DatasetIndex, run_config_pat
     """Cut a passage out of a GP file for annotating, without searching.
 
     Args:
-        settings: Passage settings (see runs.gp_source_from_settings).
+        settings: Passage settings (see runs.passage_source_from_settings).
         datasets: Where the GP file is looked up.
         run_config_path: Run config giving the guitar, articulation switches and GP parser config.
 
@@ -24,7 +24,9 @@ def cut_passage(settings: dict[str, Any], datasets: DatasetIndex, run_config_pat
         The source, the passage (as run files store it), every note's positions, the source tab's own
         string / fret / finger / stroke as the draft, and report lines.
     """
-    source = gp_source_from_settings(settings, datasets)
+    source = passage_source_from_settings(settings, datasets)
+    if "gp" not in source:
+        raise ValueError("annotating needs a GP tab (reference passages point at a tab's track)")
     passage = passage_to_dict(load_source_passage(source, run_config_path))
     draft, draft_report = source_tab_draft(source, passage, load_run_config(run_config_path)["gp_parser_config"])
     return {"source": source, "passage": passage, "positions": passage_note_positions(passage),
@@ -49,7 +51,9 @@ def save_reference(request: dict[str, Any], datasets: DatasetIndex, run_config_p
         Dry run: {"file_name", "problems"} plus what the name meets (see reference_set.check_save).
         Save: {"file_name", "overwritten"}.
     """
-    source = gp_source_from_settings(request["settings"], datasets)
+    source = passage_source_from_settings(request["settings"], datasets)
+    if "gp" not in source:
+        raise ValueError("annotating needs a GP tab (reference passages point at a tab's track)")
     gp_path = Path(source["gp"])
     file_name = str(request.get("file_name") or "").strip()
     if not file_name:

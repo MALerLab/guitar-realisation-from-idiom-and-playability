@@ -99,14 +99,22 @@ input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px s
 .popover .hint { margin: 10px 0; }
 .popover-field { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--muted); margin-bottom: 10px; }
 .popover-field select { width: 100%; color: var(--text); }
-/* Optimise pop-up: a method switch, then only that method's settings */
-.popover [hidden] { display: none; }
-#optimise-method { display: flex; margin-bottom: 10px; }
-#optimise-method button { flex: 1; justify-content: center; }
-.method-settings { margin-top: 10px; }
-#stitch-mode { display: flex; margin-bottom: 8px; }
-#stitch-mode button { flex: 1; justify-content: center; font-size: 12px; }
+#chooser-line { margin: 10px 0 6px; }
 .popover .check { font-size: 12px; display: flex; gap: 6px; align-items: center; }
+
+/* ---- Piano roll (a MIDI file in the song view); its playback tab is drawn but hidden ---- */
+#piano-roll { display: none; padding: 12px 16px; }
+body.midi-song #piano-roll { display: block; }
+body.midi-song #score { position: absolute; left: 0; top: 0; width: 100%; height: 0; overflow: hidden; visibility: hidden; pointer-events: none; }
+.roll-row { fill: var(--panel); stroke: var(--border); }
+.roll-octave { stroke: var(--border); stroke-dasharray: 2 3; }
+.roll-pitch, .roll-bar-number { font-size: 10px; fill: var(--muted); }
+.roll-bar { fill: transparent; cursor: pointer; }
+.roll-bar:hover { fill: var(--hover); }
+.roll-bar.chosen { fill: var(--accent-soft); }
+.roll-barline { stroke: var(--muted); stroke-width: 1; }
+.roll-note { fill: var(--accent); pointer-events: none; }
+.roll-playhead { stroke: var(--picking); stroke-width: 2; pointer-events: none; }
 
 /* ---- Workspace: sidebar | tab | right column ---- */
 #workspace { flex: 1; display: flex; min-height: 0; }
@@ -448,4 +456,4 @@ body.optimiser-mode #edit-button, body.optimiser-mode #save-button { display: no
 .preset-row { display: flex; gap: 6px; }
 .preset-row input { flex: 1; }
 #preset-status { margin: 6px 0 0; word-break: break-all; }
-#preset-status.warning, #catalogue-missing { color: var(--warn); }
+#preset-status.warning { color: var(--warn); }

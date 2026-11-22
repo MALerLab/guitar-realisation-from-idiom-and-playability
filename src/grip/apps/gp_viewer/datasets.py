@@ -123,21 +123,36 @@ class DatasetIndex:
         roots: dataset name → root folder (resolved); short paths are looked up under these.
         open_only_roots: more folders whose GP files open by full path (e.g. the storage root), never searched.
         allowed_extensions: GP file extensions that open.
+        midi_extensions: MIDI file extensions that open (open-only roots only).
     """
     track_table: pd.DataFrame
     song_table: pd.DataFrame
     roots: dict[str, Path]
     open_only_roots: tuple[Path, ...]
     allowed_extensions: tuple[str, ...]
+    midi_extensions: tuple[str, ...] = ()
 
     @classmethod
     def load(cls, datasets: dict[str, dict[str, Any]], open_only_roots: list[Path],
-             allowed_extensions: list[str]) -> "DatasetIndex":
+             allowed_extensions: list[str], midi_extensions: list[str] = ()) -> "DatasetIndex":
         """Read every dataset's manifests (see load_track_table)."""
         track_table = load_track_table(datasets)
         roots = {name: dataset["root"] for name, dataset in datasets.items()}
         return cls(track_table, load_song_table(track_table), roots,
-                   tuple(root.resolve() for root in open_only_roots), tuple(allowed_extensions))
+                   tuple(root.resolve() for root in open_only_roots), tuple(allowed_extensions),
+                   tuple(midi_extensions))
+
+    def find_midi_file(self, requested: str) -> Path:
+        """The MIDI file a full path names, inside an open-only root (the storage folder).
+
+        Raises:
+            ValueError: with a message for the page, if there is none.
+        """
+        for root in self.open_only_roots:
+            path = resolve_inside(root, requested)
+            if path is not None and path.suffix.lower() in self.midi_extensions:
+                return path
+        raise ValueError("no MIDI file at that path in the storage folder")
 
     def search_tracks(self, filters: dict[str, Any], page: int, page_size: int) -> dict[str, Any]:
         """One page of matching tracks (see filter_tracks and one_page).

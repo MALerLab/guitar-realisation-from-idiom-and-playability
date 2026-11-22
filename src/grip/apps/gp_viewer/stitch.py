@@ -6,7 +6,6 @@ The line is cut by the build's own rules (its long rest and repeat folding), fro
 so a block means what it means in the catalogue. Nothing is saved.
 """
 
-from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -14,12 +13,13 @@ import pandas as pd
 
 from grip.apps.gp_viewer.catalogue import CatalogueBuild
 from grip.apps.gp_viewer.datasets import DatasetIndex
-from grip.apps.gp_viewer.runs import gp_source_from_settings, passage_note_positions
+from grip.apps.gp_viewer.runs import passage_source_from_settings, passage_note_positions
 from grip.calibration.reference_set import source_tab_draft
-from grip.catalogue.stitching import (Block, Entry, choose_cover, events_as_played, notes_only_blocks,
+from grip.catalogue.menu import entries_by_path, entry_of, gp_line_events
+from grip.catalogue.menu import passage_indices_of_positions as indices_of_positions
+from grip.catalogue.stitching import (Block, choose_cover, events_as_played, notes_only_blocks,
                                       position_preserved_blocks, uncovered_positions)
-from grip.catalogue.track_line import ROLE_NOTE, ROLE_REPEAT, build_track_line, counted_notes
-from grip.formats.gp_parser import load_gp_parser_config, parse_gp_file_with_tempo
+from grip.catalogue.track_line import build_track_line, counted_notes
 from grip.formats.run_record import passage_to_dict
 from grip.pipelines.optimiser_run import load_run_config, load_source_passage
 
@@ -32,7 +32,7 @@ def stitch_passage(request: dict[str, Any], build: CatalogueBuild, datasets: Dat
     """Stitch the page's passage out of one build's entries.
 
     Args:
-        request: Passage settings (see runs.gp_source_from_settings) plus "mode" ("position" | "notes") and
+        request: Passage settings (see runs.passage_source_from_settings) plus "mode" ("position" | "notes") and
             "members_only" (bool).
         build: The catalogue build the blocks come from.
         datasets: Where the GP file is looked up.
@@ -46,7 +46,8 @@ def stitch_passage(request: dict[str, Any], build: CatalogueBuild, datasets: Dat
     if mode not in MODE_NAMES:
         raise ValueError(f"stitch mode {mode!r}: pick one of {sorted(MODE_NAMES)}")
     members_only = bool(request.get("members_only", True))
-    source = gp_source_from_settings(request, datasets)
+    source = passage_source_from_settings(request, datasets)
+    require_gp_tab(source)
     gp_parser_config_path = load_run_config(run_config_path)["gp_parser_config"]
     passage = passage_to_dict(load_source_passage(source, run_config_path))
     draft, report = source_tab_draft(source, passage, gp_parser_config_path)
@@ -74,7 +75,7 @@ def realisation_entries(request: dict[str, Any], build: CatalogueBuild, datasets
     strings and frets instead of the tab's.
 
     Args:
-        request: Passage settings (see runs.gp_source_from_settings) plus "choices" (per passage note:
+        request: Passage settings (see runs.passage_source_from_settings) plus "choices" (per passage note:
             "passage_index", "string", "fret"; string None = no single note there) and "members_only" (bool).
         build: The catalogue build the blocks come from.
         datasets: Where the GP file is looked up.
@@ -84,13 +85,20 @@ def realisation_entries(request: dict[str, Any], build: CatalogueBuild, datasets
         As stitch_passage's "stitch" (build, mode, members_only, blocks, uncovered, counted, covered), plus "report".
     """
     members_only = bool(request.get("members_only", True))
-    source = gp_source_from_settings(request, datasets)
+    source = passage_source_from_settings(request, datasets)
+    require_gp_tab(source)
     gp_parser_config_path = load_run_config(run_config_path)["gp_parser_config"]
     passage = passage_to_dict(load_source_passage(source, run_config_path))
     positions_by_onset = realisation_positions_by_onset(passage, request.get("choices") or [])
     line = passage_line(source, gp_parser_config_path, build, positions_by_onset)
     _, _, stitch_result = cover_line(line, passage, build, "position", members_only)
     return {**stitch_result, "report": [coverage_line(stitch_result)]}
+
+
+def require_gp_tab(source: dict[str, Any]) -> None:
+    """Stitch and Entries read the GP tab's own line; a MIDI file has none (its chooser runs carry their entries)."""
+    if "gp" not in source:
+        raise ValueError("Stitch and Entries need a GP tab: optimise the MIDI file with a catalogue picked instead")
 
 
 def realisation_positions_by_onset(passage: dict[str, Any],
@@ -146,43 +154,17 @@ def passage_line(source: dict[str, Any], gp_parser_config_path: Path, build: Cat
     """The passage's notes (its track, staff 0, its voice, its bars) as a catalogue line, cut by the build's rules
     (see build_track_line); moved to a realisation's strings and frets if given (see events_as_played)."""
     counting = build.info["config"]["counting"]
-    events, _ = parse_gp_file_with_tempo(Path(source["gp"]), load_gp_parser_config(gp_parser_config_path))
     first_bar, last_bar = (int(bar) for bar in source["bars"].split("-"))
-    chosen = [event for event in events
-              if event.track_index == source["track"] and event.staff_index == 0
-              and event.voice_index == source["voice"] and first_bar - 1 <= event.bar_index <= last_bar - 1]
-    if not chosen:
-        raise ValueError("no notes in those bars")
+    events = gp_line_events(Path(source["gp"]), source["track"], source["voice"], first_bar, last_bar,
+                            gp_parser_config_path)
     if positions_by_onset:
-        chosen = events_as_played(chosen, positions_by_onset)
-    return build_track_line(chosen, counting["long_rest_bars"], counting["squash_repeats"])
-
-
-def entry_of(row: Any) -> Entry:
-    return Entry(int(row.entry_id), row.interval_path, row.layout, int(row.song_count))
-
-
-def entries_by_path(entries: pd.DataFrame) -> dict[str, list[tuple[bytes, Entry]]]:
-    """(key, entry) pairs per interval path, most songs first."""
-    by_path: dict[str, list[tuple[bytes, Entry]]] = defaultdict(list)
-    for row in entries.sort_values(["song_count", "occurrence_count"], ascending=False).itertuples():
-        by_path[row.interval_path].append((bytes(row.key), entry_of(row)))
-    return by_path
+        events = events_as_played(events, positions_by_onset)
+    return build_track_line(events, counting["long_rest_bars"], counting["squash_repeats"])
 
 
 def passage_indices_of_positions(line: pd.DataFrame, passage: dict[str, Any]) -> dict[int, list[int]]:
-    """Line position → the passage notes it stands for: its own note and the repeats folded into it.
-
-    The passage has one note per onset (chords are one null note), so a line note is found by its onset.
-    """
-    index_of_onset = {note["onset_tick"]: index for index, note in enumerate(passage["notes"])}
-    # A repeat belongs to the counted note before it
-    owner = line["line_position"].where(line["role"] == ROLE_NOTE).ffill()
-    indices: dict[int, list[int]] = defaultdict(list)
-    for row, position in zip(line.itertuples(), owner):
-        if row.role in (ROLE_NOTE, ROLE_REPEAT) and pd.notna(position) and row.onset_tick in index_of_onset:
-            indices[int(position)].append(index_of_onset[row.onset_tick])
-    return indices
+    """Line position → the passage notes it stands for (see grip.catalogue.menu.passage_indices_of_positions)."""
+    return indices_of_positions(line, [note["onset_tick"] for note in passage["notes"]])
 
 
 def place_block_notes(choices: list[dict[str, Any]], cover: list[Block], passage_indices: dict[int, list[int]]) -> None:

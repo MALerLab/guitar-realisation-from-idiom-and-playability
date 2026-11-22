@@ -34,7 +34,7 @@ from grip.apps.gp_viewer.catalogue import CatalogueBuild, CatalogueShelf
 from grip.apps.gp_viewer.datasets import DatasetIndex, resolve_inside
 from grip.apps.gp_viewer.flags import FlagStore
 from grip.apps.gp_viewer.optimiser_view import cost_knobs, lr_knob_sweep, save_preset
-from grip.apps.gp_viewer.runs import find_run_file, load_run_view, optimise_passage
+from grip.apps.gp_viewer.runs import find_run_file, load_run_view, midi_song, optimise_passage
 from grip.apps.gp_viewer.stitch import realisation_entries, stitch_passage
 from grip.apps.gp_viewer.storage import StorageIndex
 from grip.core.guitar import load_guitar_setup
@@ -121,11 +121,12 @@ class ViewerApp:
         storage_root = config["paths"]["storage_root"]
         dataset_roots = [dataset["root"] for dataset in config["datasets"].values()]
         gp_extensions = config["gp_files"]["allowed_extensions"]
+        midi_extensions = config["midi_files"]["allowed_extensions"]
         browser = config["browser"]
         return cls(
             config,
-            DatasetIndex.load(config["datasets"], [storage_root], gp_extensions),
-            StorageIndex(storage_root, gp_extensions, browser["hidden_name_endings"], dataset_roots,
+            DatasetIndex.load(config["datasets"], [storage_root], gp_extensions, midi_extensions),
+            StorageIndex(storage_root, gp_extensions, midi_extensions, browser["hidden_name_endings"], dataset_roots,
                          browser["index_max_age_seconds"]),
             CatalogueShelf(storage_root, config["catalogue"]["builds_kept_open"]),
             FlagStore(config["paths"]["flags_file"]),
@@ -181,6 +182,7 @@ def page_config(app: ViewerApp, params: dict[str, str]) -> dict[str, Any]:
         "highest_fret": guitar.highest_fret, "tuning": list(guitar.tuning),
         "datasets": [{"name": name, "label": dataset["label"]} for name, dataset in app.config["datasets"].items()],
         "storage_root": str(app.storage.root),
+        "midi_extensions": list(app.config["midi_files"]["allowed_extensions"]),
         "reference_set_folder": str(app.config["paths"]["reference_set_folder"]),
     }
 
@@ -231,6 +233,15 @@ def gp_file(app: ViewerApp, params: dict[str, str]) -> FileReply:
     except ValueError as error:
         raise RouteError(HTTPStatus.NOT_FOUND, str(error)) from error
     return FileReply(path, {"X-GP-Path": quote(str(path))})
+
+
+def midi_file(app: ViewerApp, params: dict[str, str]) -> dict[str, Any]:
+    """One MIDI file as the page's piano roll and playback need it (see runs.midi_song). Params: "path" (full)."""
+    try:
+        path = app.datasets.find_midi_file(params.get("path", ""))
+    except ValueError as error:
+        raise RouteError(HTTPStatus.NOT_FOUND, str(error)) from error
+    return midi_song(path, app.run_config_path)
 
 
 def storage_folder(app: ViewerApp, params: dict[str, str]) -> dict[str, Any]:
@@ -344,6 +355,7 @@ GET_ROUTES: dict[str, Callable[[ViewerApp, dict[str, str]], Any]] = {
     "/api/tracks": track_search,
     "/api/songs": song_search,
     "/api/file": gp_file,
+    "/api/midi": midi_file,
     "/api/storage": storage_folder,
     "/api/recent": recent_files,
     "/api/run": run_view,

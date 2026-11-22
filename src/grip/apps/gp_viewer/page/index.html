@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GRIP viewer</title>
-<!-- Styles: viewer.css · script: viewer.mjs (imports annotate, catalogue_view, file_picker, flags, optimiser_view, storage_browser, transport, fretboard, track_mixer, choices_to_tex) -->
+<!-- Styles: viewer.css · script: viewer.mjs (imports annotate, catalogue_view, file_picker, flags, optimiser_view, piano_roll, stitch, storage_browser, transport, fretboard, track_mixer, choices_to_tex) -->
 <link rel="stylesheet" href="/viewer.css">
 </head>
 <body>
@@ -47,27 +47,18 @@
     <input type="number" id="last-bar" min="1" aria-label="Last bar">
   </div>
   <div class="popover-anchor">
-    <button id="run-toggle" class="primary" disabled title="Optimise the bars: by the hand models or out of the catalogue">Optimise <svg class="chevron"><use href="#icon-chevron"/></svg></button>
-    <!-- Optimise settings: the method, then what that method needs (stitch.mjs runs the catalogue one) -->
+    <button id="run-toggle" class="primary" disabled title="Optimise the bars: the hand models + the picked catalogue (the chooser)">Optimise <svg class="chevron"><use href="#icon-chevron"/></svg></button>
+    <!-- Optimise settings: the hand models price every note; with a catalogue picked, the chooser cuts the passage
+         into its entries (every cut pays glue). The Optimiser view uses the same catalogue. -->
     <div id="run-popover" class="popover" hidden>
-      <div id="optimise-method" class="segmented" title="What picks the strings and frets">
-        <button type="button" data-method="hand-models" aria-pressed="true" title="The hand models price every note: the k cheapest realisations">hand models</button>
-        <button type="button" data-method="catalogue" aria-pressed="false" title="Rebuild the bars out of the picked catalogue's entries (no hand models yet)">catalogue</button>
-      </div>
       <div class="popover-grid">
         <label>Voice <input type="number" id="voice" min="0" value="0"></label>
         <label title="Retune every string by N semitones, pitches kept (e.g. −1: a song in Eb saved as E standard)">Tuning shift <input type="number" id="tuning-shift" value="0"></label>
-        <label data-method-only="hand-models" title="Empty = the file's tempo">Tempo <input type="number" id="tempo" min="1" placeholder="file"></label>
-        <label data-method-only="hand-models" title="How many realisations">Realisations (k) <input type="number" id="k-best" min="1"></label>
+        <label title="Empty = the file's tempo">Tempo <input type="number" id="tempo" min="1" placeholder="file"></label>
+        <label title="How many realisations">Realisations (k) <input type="number" id="k-best" min="1"></label>
       </div>
-      <div data-method-only="catalogue" class="method-settings">
-        <div id="stitch-mode" class="segmented" title="Where a block may sit">
-          <button type="button" data-mode="position" aria-pressed="true" title="A block counts only on the tab's own strings and frets">position preserved</button>
-          <button type="button" data-mode="notes" aria-pressed="false" title="A block may sit wherever its notes fit: Stitch picks string + fret">notes only</button>
-        </div>
-        <p id="catalogue-missing" class="hint warning" hidden>Pick a catalogue at the left of the top bar first.</p>
-      </div>
-      <label class="check" title="Only entries past the membership line (also for Entries)"><input type="checkbox" id="stitch-members-only"> catalogue: members only</label>
+      <p id="chooser-line" class="hint"></p>
+      <label class="check" title="Only entries past the membership line go on the chooser's menu (and into Entries)"><input type="checkbox" id="menu-members-only"> catalogue: members only</label>
       <button id="run-button" class="primary wide" disabled>Optimise</button>
     </div>
   </div>
@@ -156,6 +147,8 @@
         <span>Pick a file on the left: recent runs, the storage folders, or the datasets.</span>
       </div>
       <div id="score"></div><div id="selection-boxes"></div><div id="stitch-boxes"></div>
+      <!-- A MIDI file in the song view (piano_roll.mjs); its playback tab stays hidden under it -->
+      <div id="piano-roll"></div>
     </div>
     <!-- Optimiser view: what each hand paid per note for the tab shown (picking with the lr-knob applied) -->
     <div id="cost-strip">

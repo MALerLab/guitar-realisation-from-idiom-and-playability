@@ -14,7 +14,7 @@ from typing import Any
 import yaml
 
 from grip.apps.gp_viewer.datasets import DatasetIndex
-from grip.apps.gp_viewer.runs import gp_source_from_settings, passage_note_positions
+from grip.apps.gp_viewer.runs import catalogue_choice, passage_source_from_settings, passage_note_positions
 from grip.core.paths import repo_root
 from grip.pipelines.optimiser_run import load_run_config, merge_cost_overrides, run_lr_knob_sweep
 
@@ -52,20 +52,22 @@ def lr_knob_sweep(settings: dict[str, Any], datasets: DatasetIndex, run_config_p
     """Run the lr-knob sweep on the page's passage with the page's knob edits; nothing is saved.
 
     Args:
-        settings: Passage settings (see runs.gp_source_from_settings) plus "overrides" (nested like the cost
-            config, only the edited knobs; missing = none).
+        settings: Passage settings (see runs.passage_source_from_settings) plus "overrides" (nested like the cost
+            config, only the edited knobs; missing = none) and the chooser's catalogue (see runs.catalogue_choice).
         datasets: Where the GP file is looked up.
         run_config_path: The run config the view uses (guitar, hand profile, cost config with the lr-knob).
 
     Returns:
         {"lr_knob": {min, max, default, scale}, "terms": {term: "fretting" | "picking"}, "segments": [{lr_knob_from,
-        lr_knob_to, realisation}], "source", "passage", "positions", "overrides"}.
+        lr_knob_to, realisation}], "source", "passage", "positions", "overrides", "chooser" (catalogue, menu size;
+        None without one)}.
     """
     overrides = checked_overrides(settings.get("overrides") or {}, run_config_path)
-    source = gp_source_from_settings(settings, datasets)
-    _, sweep, record = run_lr_knob_sweep(source, None, run_config_path, overrides)
+    source = passage_source_from_settings(settings, datasets)
+    _, sweep, record = run_lr_knob_sweep(source, None, run_config_path, overrides, catalogue_choice(settings))
     return {**sweep, "source": record["source"], "passage": record["passage"],
-            "positions": passage_note_positions(record["passage"]), "overrides": overrides}
+            "positions": passage_note_positions(record["passage"]), "overrides": overrides,
+            "chooser": record["chooser"]}
 
 
 # ---- presets ----

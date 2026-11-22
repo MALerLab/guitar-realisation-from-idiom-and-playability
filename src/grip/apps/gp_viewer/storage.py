@@ -25,7 +25,7 @@ FORMAT_PEEK_BYTES = 256
 
 @dataclass(frozen=True)
 class OpenableFile:
-    """One thing the viewer can open: its full path, kind ("gp", "optimiser_run", "existing_tool_run",
+    """One thing the viewer can open: its full path, kind ("gp", "midi", "optimiser_run", "existing_tool_run",
     "catalogue" = a build folder) and modification time (seconds since the epoch; 0 inside the dataset folders, which never change)."""
     path: Path
     kind: str
@@ -68,18 +68,21 @@ class StorageIndex:
     Safe to share between request threads: a walk builds a new snapshot and swaps it in whole.
     """
 
-    def __init__(self, root: Path, gp_extensions: list[str], hidden_name_endings: list[str], dataset_roots: list[Path],
+    def __init__(self, root: Path, gp_extensions: list[str], midi_extensions: list[str], hidden_name_endings: list[str],
+                 dataset_roots: list[Path],
                  max_age_seconds: float):
         """
         Args:
             root: The storage root.
             gp_extensions: GP file extensions that open (lowercase, with the dot).
+            midi_extensions: MIDI file extensions that open (outside the dataset folders).
             hidden_name_endings: Files whose names end like this never show (e.g. DadaGP's re-saves).
             dataset_roots: Dataset folders; their files are browsable but never "recent" (they never change).
             max_age_seconds: How old a walk may get before the next request walks again.
         """
         self.root = root.resolve()
         self.gp_extensions = frozenset(gp_extensions)
+        self.midi_extensions = frozenset(midi_extensions)
         self.hidden_name_endings = tuple(hidden_name_endings)
         self.dataset_roots = tuple(root.resolve() for root in dataset_roots)
         self.max_age_seconds = max_age_seconds
@@ -147,13 +150,15 @@ class StorageIndex:
         return files_by_folder
 
     def openable_file(self, entry: os.DirEntry, in_dataset: bool) -> OpenableFile | None:
-        """The file as an OpenableFile if the viewer opens it (GP extension, or a run file's JSON outside the
-        dataset folders), else None."""
+        """The file as an OpenableFile if the viewer opens it (GP extension; a MIDI file or a run file's JSON outside
+        the dataset folders), else None."""
         suffix = os.path.splitext(entry.name)[1].lower()
         if entry.name.endswith(self.hidden_name_endings):
             return None
         if suffix in self.gp_extensions:
             return OpenableFile(Path(entry.path), "gp", 0.0 if in_dataset else entry.stat(follow_symlinks=False).st_mtime)
+        if suffix in self.midi_extensions and not in_dataset:
+            return OpenableFile(Path(entry.path), "midi", entry.stat(follow_symlinks=False).st_mtime)
         if suffix != ".json" or in_dataset:
             return None
         stat = entry.stat(follow_symlinks=False)
