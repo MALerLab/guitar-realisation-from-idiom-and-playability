@@ -28,7 +28,6 @@ node_modules/
 /CLAUDE.md
 /PROJECT.md
 /todo.md
-/setup_worktree.sh
 
 # Papers: their own private repo, not tracked here
 /papers/
