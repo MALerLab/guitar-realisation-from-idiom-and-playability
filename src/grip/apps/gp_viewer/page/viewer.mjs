@@ -1,12 +1,13 @@
 // GRIP viewer, main script: alphaTab, the page state, drawing what is shown, the top bar
-// (tracks, realisations, Optimise pop-up, Edit), the sidebar and drawers, and opening songs (GP files) and runs.
+// (catalogue pick, tracks, Bars box, Optimise pop-up, realisations, Edit), the sidebar and drawers, and opening
+// songs (GP files) and runs.
 // The other files each get what they need from here through one `viewer` object when the page starts:
 //   annotate.mjs         note panel, selecting notes, the edit keys, the Save box
 //   catalogue_view.mjs   the catalogue view: interval paths, layouts, their family, where they turn up
 //   file_picker.mjs      path box, the Datasets tab (songs / tracks search)
 //   flags.mjs            junk flags: the flag box (song view's top bar, catalogue player)
 //   optimiser_view.mjs   the Optimiser view: the lr-knob (an lr-knob sweep's segments), the cost strip, the knob form, presets
-//   stitch.mjs           the Stitch pop-up, and its block boxes + uncovered notes on the tab
+//   stitch.mjs           Optimise by catalogue (Stitch), the Entries overlay, their block boxes + uncovered notes
 //   storage_browser.mjs  the Files tab: recent files + the storage folder as on disk
 //   transport.mjs        the transport bar: play / pause, bars, scrub, loop, speed, their keys
 //   fretboard.mjs        the fretboard drawer, and the tuning label's text
@@ -180,6 +181,20 @@ function shownPassage() {
   return null;
 }
 
+/** Passage settings of the passage on screen (a run's, the annotation's, the lr-knob sweep's), or null
+ *  (the song itself, the catalogue player, or a run with no GP file behind it). */
+function shownPassageSettings() {
+  if (state.view?.kind === 'realisation') return settingsFromSource(state.run.run.source);
+  if (state.view?.kind === 'annotation') return state.annotation.settings;
+  if (state.view?.kind === 'segment') return state.sweep.settings;
+  return null;
+}
+
+/** The catalogue picked in the top bar (its folder, full path), or null. */
+function currentCatalogue() {
+  return element('catalogue-select').value || null;
+}
+
 /** Which view shows: 'song', 'catalogue' or 'optimiser'. */
 function currentMode() {
   if (document.body.classList.contains('catalogue-mode')) return 'catalogue';
@@ -249,6 +264,7 @@ const viewer = {
   renderView, shownPassage, choicesDiffer, changedFromStart, currentBeatMap, updateDropdowns, openFile, showTrack,
   showRunFile, onFileOpened, openCatalogue, openPhrase, setView, showPhrase, currentMode,
   readSettings, sameSettings, confirmDiscardAnnotation, openRunView, openCatalogueEntry, buildBeatMap,
+  shownPassageSettings, currentCatalogue,
 };
 const flags = setupFlags(viewer);
 // The catalogue player flags tracks too
@@ -386,8 +402,9 @@ function updateDropdowns() {
 }
 
 function updateButtons() {
-  for (const id of ['run-button', 'run-toggle', 'stitch-button', 'stitch-toggle']) element(id).disabled = !state.song;
+  for (const id of ['run-button', 'run-toggle']) element(id).disabled = !state.song;
   element('view-switch').querySelector('[data-view=optimiser]').disabled = !state.song;
+  stitch.updateEntriesButton();
   if (!state.song) closePopovers();
   element('edit-button').disabled = !(state.view?.kind === 'song' || state.view?.kind === 'realisation');
   element('save-button').disabled = !state.annotation;
@@ -528,7 +545,7 @@ realisationSelect.onchange = () => {
   renderView();
 };
 
-/** Run the optimiser on the run bar's passage; the run is saved and opened. Keeps an annotation of the same passage. */
+/** Run the optimiser (hand models) on the Bars box's passage; the run is saved and opened. Keeps an annotation of the same passage. */
 async function runOptimiser() {
   const settings = readSettings();
   if (!settings) return;
@@ -551,24 +568,37 @@ async function runOptimiser() {
   storageBrowser.refresh();
   await showRun(reply.path, keepAnnotation);
 }
-element('run-button').onclick = runOptimiser;
+// Optimise by the picked method: the hand models (the optimiser) or the catalogue (Stitch); remembered
+let optimiseMethod = recall('optimiseMethod', 'hand-models');
+/** Show the picked method in the pop-up: its button pressed, only its settings shown. */
+function markOptimiseMethod() {
+  for (const button of document.querySelectorAll('#optimise-method button')) {
+    button.setAttribute('aria-pressed', String(button.dataset.method === optimiseMethod));
+  }
+  for (const part of document.querySelectorAll('#run-popover [data-method-only]')) part.hidden = part.dataset.methodOnly !== optimiseMethod;
+  element('catalogue-missing').hidden = Boolean(currentCatalogue());
+}
+for (const button of document.querySelectorAll('#optimise-method button')) {
+  button.onclick = () => { optimiseMethod = button.dataset.method; remember('optimiseMethod', optimiseMethod); markOptimiseMethod(); };
+}
+markOptimiseMethod();
+element('run-button').onclick = () => (optimiseMethod === 'catalogue' ? stitch.runStitch() : runOptimiser());
 
-// Optimise and Stitch pop-ups: each opens under its button (closing the other); Esc or a click elsewhere closes them
+// The Optimise pop-up opens under its button; Esc or a click elsewhere closes it
 function closePopovers() {
   element('run-popover').hidden = true;
-  element('stitch-popover').hidden = true;
 }
 element('run-toggle').onclick = () => {
   const opening = element('run-popover').hidden;
   closePopovers();
   element('run-popover').hidden = !opening;
+  if (opening) markOptimiseMethod();
 };
-element('stitch-toggle').onclick = () => {
-  const opening = element('stitch-popover').hidden;
-  closePopovers();
-  element('stitch-popover').hidden = !opening;
-  if (opening) stitch.openPopover();
-};
+
+// A new passage typed in the Bars box while the Optimiser view shows: sweep it
+for (const id of ['first-bar', 'last-bar']) {
+  element(id).addEventListener('change', () => { if (currentMode() === 'optimiser') optimiserView.enter(); });
+}
 document.addEventListener('pointerdown', (event) => {
   if (!event.target.closest('.popover-anchor')) closePopovers();
 });
@@ -672,12 +702,53 @@ function showPhrase(phrase) {
 }
 for (const button of document.querySelectorAll('#view-switch button')) button.onclick = () => setView(button.dataset.view);
 
-/** Open a catalogue build from the Files tab; the Catalogue switch works from then on. True if it opened. */
-async function openCatalogue(folder) {
-  const opened = await catalogueView.openCatalogue(folder);
-  if (opened) element('view-switch').querySelector('[data-view=catalogue]').disabled = false;
+/**
+ * Load a catalogue build: the Catalogue switch, Optimise (catalogue) and Entries use it from then on. True if it opened.
+ *
+ * Args:
+ *   folder: The build's folder (full path).
+ *   showView: Switch to the catalogue view too (opened from the Files tab); the top bar's pick stays where it is.
+ */
+async function openCatalogue(folder, showView = true) {
+  const opened = await catalogueView.openCatalogue(folder, showView);
+  if (opened) {
+    await fillCatalogueChoice(folder);
+    remember('catalogue', folder);
+    element('view-switch').querySelector('[data-view=catalogue]').disabled = false;
+    markOptimiseMethod();
+    renderView(true);  // Entries follow the new catalogue
+  }
   return opened;
 }
+
+/** The top bar's catalogue pick: every build in the storage folder (newest first), `picked` chosen. */
+async function fillCatalogueChoice(picked = currentCatalogue()) {
+  const response = await fetch('/api/catalogue/builds');
+  const builds = response.ok ? await response.json() : [];
+  const select = element('catalogue-select');
+  // Shown as <folder under the storage root>/<build>, e.g. catalogue/bpe/261118_goat_test
+  select.replaceChildren(new Option('no catalogue', ''), ...builds.map((build) => new Option(`${build.folder}/${build.name}`, build.path)));
+  select.value = builds.some((build) => build.path === picked) ? picked : '';
+  select.classList.toggle('empty', !select.value);
+}
+
+element('catalogue-select').onchange = async () => {
+  const select = element('catalogue-select');
+  select.blur();
+  select.classList.toggle('empty', !select.value);
+  if (select.value) {
+    await openCatalogue(select.value, false);
+    return;
+  }
+  // No catalogue: the catalogue view, Optimise (catalogue) and Entries switch off
+  remember('catalogue', '');
+  element('view-switch').querySelector('[data-view=catalogue]').disabled = true;
+  if (currentMode() === 'catalogue') setView('song');
+  markOptimiseMethod();
+  renderView(true);
+};
+// New builds show up once the pointer comes over the pick (refilling while it is open would close it)
+element('catalogue-select').addEventListener('pointerenter', () => fillCatalogueChoice());
 
 /** Open one entry of a catalogue build in the catalogue view (a Stitch block's badge): the build first if it isn't open. */
 async function openCatalogueEntry(folder, intervalPath, entryId) {
@@ -834,7 +905,9 @@ document.addEventListener('click', (event) => event.target.closest('button')?.bl
 api.playerStateChanged.on(() => fretboard.updateFretboard());
 api.playerPositionChanged.on((event) => fretboard.updateFretboard(event.currentTick));
 
-// ---- Start: empty note panel ----
+// ---- Start: empty note panel, the last catalogue picked ----
 
 annotate.updatePanel();
 updatePanels();
+await fillCatalogueChoice(recall('catalogue', ''));
+if (currentCatalogue()) await openCatalogue(currentCatalogue(), false);

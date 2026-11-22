@@ -26,9 +26,12 @@
   <symbol id="icon-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
 </svg>
 
-<!-- Top bar: what is open, what is shown, and the Optimise / Stitch / Edit / Save actions -->
+<!-- Top bar, left to right in the order the parts are used: catalogue → song → bars → Optimise → views →
+     what is shown; every step can be skipped. Then Edit / Save / Junk. -->
 <header id="topbar">
   <button id="sidebar-toggle" class="icon-button" title="Hide / show the files"><svg><use href="#icon-menu"/></svg></button>
+  <!-- The catalogue every part uses: the Catalogue view, Optimise (catalogue) and the Entries overlay -->
+  <select id="catalogue-select" title="Catalogue: used by the Catalogue view, Optimise (catalogue) and Entries"></select>
   <div id="title-block">
     <span id="song-title">No file open</span>
     <span id="subtitle">
@@ -36,50 +39,48 @@
       <span id="tuning" title="Open strings of what is shown, lowest string first"></span>
     </span>
   </div>
-  <!-- Song view / catalogue view (the catalogue one once a build is open) / Optimiser view (once a song is open) -->
-  <div id="view-switch" class="segmented" role="tablist">
-    <button type="button" data-view="song" aria-pressed="true">Song</button>
-    <button type="button" data-view="catalogue" aria-pressed="false" disabled title="Open a catalogue build from the Files tab">Catalogue</button>
-    <button type="button" data-view="optimiser" aria-pressed="false" disabled title="Turn the lr-knob on the bars picked in the Song view">Optimiser</button>
+  <!-- The passage: drag over bars in the tab (shift-click spans) to fill it; Optimise and the Optimiser view read it -->
+  <div id="bars-box" title="The bars Optimise and the Optimiser view work on: drag over bars in the tab to fill them">
+    <span class="hint">Bars</span>
+    <input type="number" id="first-bar" min="1" aria-label="First bar">
+    <span class="hint">–</span>
+    <input type="number" id="last-bar" min="1" aria-label="Last bar">
   </div>
-  <select id="realisation-select" disabled title="Realisation of the open run"></select>
-  <span id="status"></span>
   <div class="popover-anchor">
-    <button id="run-toggle" class="primary" disabled title="Run the optimiser (hand models) on some bars">Optimise <svg class="chevron"><use href="#icon-chevron"/></svg></button>
-    <!-- Optimise settings: drag over bars in the tab to fill the bar boxes (Stitch uses the same bars) -->
+    <button id="run-toggle" class="primary" disabled title="Optimise the bars: by the hand models or out of the catalogue">Optimise <svg class="chevron"><use href="#icon-chevron"/></svg></button>
+    <!-- Optimise settings: the method, then what that method needs (stitch.mjs runs the catalogue one) -->
     <div id="run-popover" class="popover" hidden>
+      <div id="optimise-method" class="segmented" title="What picks the strings and frets">
+        <button type="button" data-method="hand-models" aria-pressed="true" title="The hand models price every note: the k cheapest realisations">hand models</button>
+        <button type="button" data-method="catalogue" aria-pressed="false" title="Rebuild the bars out of the picked catalogue's entries (no hand models yet)">catalogue</button>
+      </div>
       <div class="popover-grid">
-        <label>First bar <input type="number" id="first-bar" min="1"></label>
-        <label>Last bar <input type="number" id="last-bar" min="1"></label>
         <label>Voice <input type="number" id="voice" min="0" value="0"></label>
         <label title="Retune every string by N semitones, pitches kept (e.g. −1: a song in Eb saved as E standard)">Tuning shift <input type="number" id="tuning-shift" value="0"></label>
-        <label title="Empty = the file's tempo">Tempo <input type="number" id="tempo" min="1" placeholder="file"></label>
-        <label title="How many realisations">Realisations (k) <input type="number" id="k-best" min="1"></label>
+        <label data-method-only="hand-models" title="Empty = the file's tempo">Tempo <input type="number" id="tempo" min="1" placeholder="file"></label>
+        <label data-method-only="hand-models" title="How many realisations">Realisations (k) <input type="number" id="k-best" min="1"></label>
       </div>
-      <p class="hint">Tip: drag over bars in the tab to fill the bar boxes.</p>
+      <div data-method-only="catalogue" class="method-settings">
+        <div id="stitch-mode" class="segmented" title="Where a block may sit">
+          <button type="button" data-mode="position" aria-pressed="true" title="A block counts only on the tab's own strings and frets">position preserved</button>
+          <button type="button" data-mode="notes" aria-pressed="false" title="A block may sit wherever its notes fit: Stitch picks string + fret">notes only</button>
+        </div>
+        <p id="catalogue-missing" class="hint warning" hidden>Pick a catalogue at the left of the top bar first.</p>
+      </div>
+      <label class="check" title="Only entries past the membership line (also for Entries)"><input type="checkbox" id="stitch-members-only"> catalogue: members only</label>
       <button id="run-button" class="primary wide" disabled>Optimise</button>
     </div>
   </div>
-  <!-- Stitch (stitch.mjs): rebuild the same bars out of one catalogue build's entries -->
-  <div class="popover-anchor">
-    <button id="stitch-toggle" class="stitch" disabled title="Rebuild the bars out of one catalogue's entries">Stitch <svg class="chevron"><use href="#icon-chevron"/></svg></button>
-    <div id="stitch-popover" class="popover" hidden>
-      <div class="popover-grid">
-        <label>First bar <input type="number" id="stitch-first-bar" min="1"></label>
-        <label>Last bar <input type="number" id="stitch-last-bar" min="1"></label>
-        <label>Voice <input type="number" id="stitch-voice" min="0" value="0"></label>
-        <label title="Retune every string by N semitones, pitches kept (notes only places blocks on this guitar)">Tuning shift <input type="number" id="stitch-tuning-shift" value="0"></label>
-      </div>
-      <p class="hint">Tip: drag over bars in the tab to fill the bar boxes.</p>
-      <label class="popover-field">Catalogue <select id="stitch-build"></select></label>
-      <div id="stitch-mode" class="segmented" title="Where a block may sit">
-        <button type="button" data-mode="position" aria-pressed="true" title="A block counts only on the tab's own strings and frets">position preserved</button>
-        <button type="button" data-mode="notes" aria-pressed="false" title="A block may sit wherever its notes fit: Stitch picks string + fret">notes only</button>
-      </div>
-      <label class="check"><input type="checkbox" id="stitch-members-only"> members only</label>
-      <button id="stitch-button" class="stitch wide" disabled>Stitch</button>
-    </div>
+  <!-- Song view / catalogue view (once a catalogue is picked) / Optimiser view (once a song is open) -->
+  <div id="view-switch" class="segmented" role="tablist">
+    <button type="button" data-view="song" aria-pressed="true">Song</button>
+    <button type="button" data-view="catalogue" aria-pressed="false" disabled title="Pick a catalogue first (top bar, left)">Catalogue</button>
+    <button type="button" data-view="optimiser" aria-pressed="false" disabled title="Turn the lr-knob on the bars in the Bars box">Optimiser</button>
   </div>
+  <select id="realisation-select" disabled title="Realisation of the open run"></select>
+  <!-- Entries overlay (stitch.mjs): which catalogue entries the tab on screen is made of -->
+  <button id="entries-toggle" aria-pressed="false" disabled title="Show which catalogue entries the tab on screen is made of (needs a catalogue)">Entries</button>
+  <span id="status"></span>
   <button id="edit-button" disabled title="Annotate: start from what is shown">Edit</button>
   <button id="save-button" disabled title="Save the annotation as a reference passage">Save</button>
   <button id="flag-button" class="flag" disabled title="Flag this track as junk (corpus clean-up)">⚑ Junk</button>

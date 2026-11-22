@@ -1,43 +1,53 @@
-// GRIP viewer, Stitch: rebuild some bars out of one catalogue build's entries (server: stitch.py),
-// shown like a run with one realisation. On top of the tab: a thin box per block (a block that wraps onto the
-// next line gets a box per line) with a badge (hover = its entry, click = open it in the catalogue view), and
-// the notes no block holds in red (where the glue notes go). Two modes: position preserved (blocks only on the
-// tab's own strings and frets) and notes only (Stitch places each block where its notes fit).
-// The pop-up's bar boxes are twins of the Optimise pop-up's: one passage, typed or dragged in either.
-// viewer.mjs calls setupStitch once at start; it opens the pop-up (openPopover) and asks for the marks.
+// GRIP viewer, Stitch + Entries: catalogue blocks on top of the tab (server: stitch.py).
+//   - Stitch = Optimise with the "catalogue" method: rebuild the Bars box's passage out of the picked catalogue's
+//     entries, shown like a run with one realisation. Two modes: position preserved (blocks only on the tab's own
+//     strings and frets) and notes only (Stitch places each block where its notes fit).
+//   - Entries = the same blocks for whatever realisation is on screen (an optimiser run, a segment of the lr-knob
+//     sweep, an annotation), on that realisation's own strings and frets; on / off from the top bar.
+// Either way: a thin box per block (a block that wraps onto the next line gets a box per line) with a badge
+// (hover = its entry, click = open it in the catalogue view), and the notes no block holds in red (where the glue
+// notes go). viewer.mjs calls setupStitch once at start, runStitch from the Optimise button, and asks for the marks.
 import * as alphaTab from '/alphatab/alphaTab.mjs';
 
 // What viewer.mjs shares, set once by setupStitch
-let element, statusLabel, api, state, postJson, remember, recall, readSettings, sameSettings;
-let confirmDiscardAnnotation, openRunView, openCatalogueEntry, currentBeatMap, buildBeatMap;
+let element, statusLabel, api, state, postJson, remember, recall, readSettings, sameSettings, renderView;
+let confirmDiscardAnnotation, openRunView, openCatalogueEntry, currentBeatMap, buildBeatMap, currentCatalogue;
+let shownPassage, shownPassageSettings;
 
 const UNCOVERED_COLOUR = new alphaTab.model.Color(192, 57, 43);
 // Room (px) between a block's notes and its box; the badge sits just above the box
 const BOX_PADDING = 4;
 const BADGE_RISE = 14;
-
-// Stitch pop-up box → its twin in the Optimise pop-up (the one readSettings reads)
-const TWIN_BOXES = {
-  'stitch-first-bar': 'first-bar', 'stitch-last-bar': 'last-bar', 'stitch-voice': 'voice', 'stitch-tuning-shift': 'tuning-shift',
-};
+// Entries answers kept in this page (dragging the lr-knob back and forth asks for the same tabs again)
+const ENTRIES_KEPT = 64;
 
 let mode = 'position';
+let entriesOn = false;
+const entriesAnswers = new Map();  // request key → the server's answer
+let entriesPending = null;          // request key being asked for
 
-/** Take what viewer.mjs shares and wire the pop-up's controls. Returns { openPopover, colourUncovered, drawBlockBoxes }. */
+/** Take what viewer.mjs shares and wire the controls. Returns { runStitch, colourUncovered, drawBlockBoxes, updateEntriesButton }. */
 export function setupStitch(viewer) {
-  ({ element, statusLabel, api, state, postJson, remember, recall, readSettings, sameSettings } = viewer);
-  ({ confirmDiscardAnnotation, openRunView, openCatalogueEntry, currentBeatMap, buildBeatMap } = viewer);
+  ({ element, statusLabel, api, state, postJson, remember, recall, readSettings, sameSettings, renderView } = viewer);
+  ({ confirmDiscardAnnotation, openRunView, openCatalogueEntry, currentBeatMap, buildBeatMap, currentCatalogue } = viewer);
+  ({ shownPassage, shownPassageSettings } = viewer);
   mode = recall('stitchMode', 'position');
   markMode();
   for (const button of document.querySelectorAll('#stitch-mode button')) {
     button.onclick = () => { mode = button.dataset.mode; remember('stitchMode', mode); markMode(); };
   }
   element('stitch-members-only').checked = recall('stitchMembersOnly', '1') === '1';
-  element('stitch-members-only').onchange = () => remember('stitchMembersOnly', element('stitch-members-only').checked ? '1' : '0');
-  element('stitch-build').onchange = () => remember('stitchBuild', element('stitch-build').value);
-  element('stitch-button').onclick = stitch;
-  for (const [id, twin] of Object.entries(TWIN_BOXES)) element(id).oninput = () => { element(twin).value = element(id).value; };
-  return { openPopover, colourUncovered, drawBlockBoxes };
+  element('stitch-members-only').onchange = () => {
+    remember('stitchMembersOnly', element('stitch-members-only').checked ? '1' : '0');
+    if (entriesOn) renderView(true);
+  };
+  entriesOn = recall('entriesOn', '0') === '1';
+  element('entries-toggle').onclick = () => {
+    entriesOn = !entriesOn;
+    remember('entriesOn', entriesOn ? '1' : '0');
+    renderView(true);
+  };
+  return { runStitch, colourUncovered, drawBlockBoxes, updateEntriesButton };
 }
 
 function markMode() {
@@ -46,36 +56,20 @@ function markMode() {
   }
 }
 
-/** Fill the pop-up as it opens: the bar boxes from their twins, and the catalogue builds (newest first, the last one picked kept). */
-async function openPopover() {
-  for (const [id, twin] of Object.entries(TWIN_BOXES)) element(id).value = element(twin).value;
-  const response = await fetch('/api/catalogue/builds');
-  if (!response.ok) {
-    statusLabel.textContent = `server: ${response.status} ${response.statusText}`;
-    return;
-  }
-  const builds = await response.json();
-  const select = element('stitch-build');
-  // Shown as <folder under the storage root>/<build>, e.g. catalogue/bpe/261118_goat_test
-  select.replaceChildren(...builds.map((build) => new Option(`${build.folder}/${build.name}`, build.path)));
-  const wanted = recall('stitchBuild', '');
-  if (builds.some((build) => build.path === wanted)) select.value = wanted;
-}
-
-/** Stitch the bar boxes' passage out of the picked build and show it like a run. Keeps an annotation of the same passage. */
-async function stitch() {
+/** Stitch the Bars box's passage out of the picked catalogue and show it like a run. Keeps an annotation of the same passage. */
+async function runStitch() {
   const settings = readSettings();
   if (!settings) return;
-  const build = element('stitch-build').value;
+  const build = currentCatalogue();
   if (!build) {
-    statusLabel.textContent = 'no catalogue build in the storage folder';
+    statusLabel.textContent = 'pick a catalogue first (top bar, left)';
     return;
   }
   const keepAnnotation = state.annotation && sameSettings(state.annotation.settings, settings);
   if (state.annotation && !keepAnnotation && !confirmDiscardAnnotation('Stitch a different passage')) return;
-  const button = element('stitch-button');
+  const button = element('run-button');
   button.disabled = true;
-  element('stitch-popover').hidden = true;
+  element('run-popover').hidden = true;
   statusLabel.textContent = 'stitching…';
   const reply = await postJson('/api/stitch', { ...settings, build, mode, members_only: element('stitch-members-only').checked });
   button.disabled = false;
@@ -88,9 +82,54 @@ async function stitch() {
   statusLabel.textContent = reply.report.at(-1) ?? '';
 }
 
-/** The open Stitch's blocks and uncovered notes while its realisation is shown, else null. */
+// ---- Entries: the blocks of whatever realisation is on screen ----
+
+/** The Entries request for what is on screen ({ key, body }), or null if Entries can't apply (off, no catalogue,
+ *  a Stitch run (it shows its own blocks), the catalogue player, or a passage with no GP file behind it). */
+function entriesRequest() {
+  if (!entriesOn || !currentCatalogue() || (state.run?.kind === 'stitch' && state.view?.kind === 'realisation')) return null;
+  const shown = shownPassage();
+  const settings = shown && state.view.kind !== 'phrase' ? shownPassageSettings() : null;
+  if (!settings) return null;
+  const choices = shown.choices.map((choice) => ({ passage_index: choice.passage_index, string: choice.string, fret: choice.fret }));
+  const body = { ...settings, build: currentCatalogue(), members_only: element('stitch-members-only').checked, choices };
+  return { key: JSON.stringify(body), body };
+}
+
+/** Ask the server for the Entries of what is on screen (once per tab); redraws when the answer comes, if it still applies. */
+async function fetchEntries(request) {
+  if (entriesPending === request.key) return;
+  entriesPending = request.key;
+  statusLabel.textContent = 'finding entries…';
+  const reply = await postJson('/api/entries', request.body);
+  if (entriesPending === request.key) entriesPending = null;
+  if (reply.error) {
+    statusLabel.textContent = `Entries failed: ${reply.error}`;
+    return;
+  }
+  entriesAnswers.set(request.key, reply);
+  if (entriesAnswers.size > ENTRIES_KEPT) entriesAnswers.delete(entriesAnswers.keys().next().value);
+  if (entriesRequest()?.key !== request.key) return;  // the tab changed meanwhile
+  statusLabel.textContent = `entries: ${reply.report.at(-1)}`;
+  renderView(true);
+}
+
+/** The Entries button: on only while a catalogue is picked; pressed while Entries is on. */
+function updateEntriesButton() {
+  const button = element('entries-toggle');
+  button.disabled = !currentCatalogue();
+  button.setAttribute('aria-pressed', String(entriesOn && !button.disabled));
+}
+
+/** The blocks and uncovered notes to mark on the tab on screen: the open Stitch's, or the Entries of what is shown
+ *  (null until the server answers; asking it is started here). */
 function shownStitch() {
-  return state.view?.kind === 'realisation' && state.run?.kind === 'stitch' ? state.run.stitch : null;
+  if (state.view?.kind === 'realisation' && state.run?.kind === 'stitch') return state.run.stitch;
+  const request = entriesRequest();
+  if (!request) return null;
+  const answer = entriesAnswers.get(request.key);
+  if (!answer) fetchEntries(request);
+  return answer ?? null;
 }
 
 /** Colour the fret numbers of the notes no block holds (called on the score before it is drawn). */

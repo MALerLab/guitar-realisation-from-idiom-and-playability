@@ -1,5 +1,6 @@
 """Stitch in the viewer: rebuild the page's passage out of one catalogue build's entries (see
-grip.catalogue.stitching) and answer it like a run view, plus the blocks and the uncovered notes.
+grip.catalogue.stitching) and answer it like a run view, plus the blocks and the uncovered notes; and break any
+realisation on the page into the entries it is built from (the Entries overlay).
 
 The line is cut by the build's own rules (its long rest and repeat folding), from the passage's own voice,
 so a block means what it means in the catalogue. Nothing is saved.
@@ -15,8 +16,8 @@ from grip.apps.gp_viewer.catalogue import CatalogueBuild
 from grip.apps.gp_viewer.datasets import DatasetIndex
 from grip.apps.gp_viewer.runs import gp_source_from_settings, passage_note_positions
 from grip.calibration.reference_set import source_tab_draft
-from grip.catalogue.stitching import (Block, Entry, choose_cover, notes_only_blocks, position_preserved_blocks,
-                                      uncovered_positions)
+from grip.catalogue.stitching import (Block, Entry, choose_cover, events_as_played, notes_only_blocks,
+                                      position_preserved_blocks, uncovered_positions)
 from grip.catalogue.track_line import ROLE_NOTE, ROLE_REPEAT, build_track_line, counted_notes
 from grip.formats.gp_parser import load_gp_parser_config, parse_gp_file_with_tempo
 from grip.formats.run_record import passage_to_dict
@@ -49,45 +50,102 @@ def stitch_passage(request: dict[str, Any], build: CatalogueBuild, datasets: Dat
     gp_parser_config_path = load_run_config(run_config_path)["gp_parser_config"]
     passage = passage_to_dict(load_source_passage(source, run_config_path))
     draft, report = source_tab_draft(source, passage, gp_parser_config_path)
-    counting = build.info["config"]["counting"]
-    line = passage_line(source, gp_parser_config_path, counting["long_rest_bars"], counting["squash_repeats"])
-    line_notes = counted_notes(line)
+    line = passage_line(source, gp_parser_config_path, build)
+    cover, passage_indices, stitch_result = cover_line(line, passage, build, mode, members_only)
 
-    entries = build.entries[build.entries["is_member"]] if members_only else build.entries
-    guitar = passage["guitar"]
-    if mode == "position":
-        entries_by_key = {bytes(row.key): entry_of(row) for row in entries.itertuples()}
-        blocks = position_preserved_blocks(line_notes, entries_by_key, counting["max_notes"])
-    else:
-        blocks = notes_only_blocks(line_notes, entries_by_path(entries), guitar["tuning"], guitar["highest_fret"],
-                                   counting["max_notes"])
-    cover = choose_cover(blocks, len(line_notes))
-    uncovered = uncovered_positions(cover, line_notes)
-
-    passage_indices = passage_indices_of_positions(line, passage)
     choices = [{"passage_index": choice["passage_index"], "string": choice["string"], "fret": choice["fret"],
                 "finger": None, "hand": None, "stroke": None, "stroke_letter": None} for choice in draft]
     if mode == "notes":
         place_block_notes(choices, cover, passage_indices)
-    block_rows = [row for block in cover if (row := block_row(block, passage_indices)) is not None]
-    counted = len(line_notes)
-    covered = sum(block.length for block in cover)
-    report = report + [f"{len(cover)} blocks hold {covered} of {counted} counted notes; {len(uncovered)} uncovered"]
     return {
         "kind": "stitch", "name": passage["name"],
         "label": f"Stitch · {build.folder.name} · {MODE_NAMES[mode]}{'' if members_only else ' · all entries'}",
         "source": source, "passage": passage,
         "realisations": [{"rank": 1, "total_cost": None, "choices": choices}],
         "positions": passage_note_positions(passage),
-        "stitch": {"build": str(build.folder), "mode": mode, "members_only": members_only, "blocks": block_rows,
-                   "uncovered": sorted(index for position in uncovered for index in passage_indices[position])},
-        "report": report,
+        "stitch": stitch_result,
+        "report": report + [coverage_line(stitch_result)],
     }
 
 
-def passage_line(source: dict[str, Any], gp_parser_config_path: Path, long_rest_bars: float,
-                 squash_repeats: bool) -> pd.DataFrame:
-    """The passage's notes (its track, staff 0, its voice, its bars) as a catalogue line (see build_track_line)."""
+def realisation_entries(request: dict[str, Any], build: CatalogueBuild, datasets: DatasetIndex,
+                        run_config_path: Path) -> dict[str, Any]:
+    """The entries of one build a realisation is made of: position preserved Stitch on the realisation's own
+    strings and frets instead of the tab's.
+
+    Args:
+        request: Passage settings (see runs.gp_source_from_settings) plus "choices" (per passage note:
+            "passage_index", "string", "fret"; string None = no single note there) and "members_only" (bool).
+        build: The catalogue build the blocks come from.
+        datasets: Where the GP file is looked up.
+        run_config_path: Run config giving the guitar and the GP parser config.
+
+    Returns:
+        As stitch_passage's "stitch" (build, mode, members_only, blocks, uncovered, counted, covered), plus "report".
+    """
+    members_only = bool(request.get("members_only", True))
+    source = gp_source_from_settings(request, datasets)
+    gp_parser_config_path = load_run_config(run_config_path)["gp_parser_config"]
+    passage = passage_to_dict(load_source_passage(source, run_config_path))
+    positions_by_onset = realisation_positions_by_onset(passage, request.get("choices") or [])
+    line = passage_line(source, gp_parser_config_path, build, positions_by_onset)
+    _, _, stitch_result = cover_line(line, passage, build, "position", members_only)
+    return {**stitch_result, "report": [coverage_line(stitch_result)]}
+
+
+def realisation_positions_by_onset(passage: dict[str, Any],
+                                   choices: list[dict[str, Any]]) -> dict[int, tuple[int, int]]:
+    """Onset tick → (string, fret) for every passage note the realisation puts on a string."""
+    notes = passage["notes"]
+    positions = {}
+    for choice in choices:
+        index = int(choice["passage_index"])
+        if choice.get("string") is not None and 0 <= index < len(notes):
+            positions[notes[index]["onset_tick"]] = (int(choice["string"]), int(choice["fret"]))
+    return positions
+
+
+def cover_line(line: pd.DataFrame, passage: dict[str, Any], build: CatalogueBuild, mode: str,
+               members_only: bool) -> tuple[list[Block], dict[int, list[int]], dict[str, Any]]:
+    """Cover a passage's line with one build's entries.
+
+    Returns:
+        (the cover's blocks, line position → passage notes, the page's "stitch" part: build, mode, members_only,
+        blocks as passage note ranges, uncovered passage notes, counted and covered note counts).
+    """
+    counting = build.info["config"]["counting"]
+    line_notes = counted_notes(line)
+    entries = build.entries[build.entries["is_member"]] if members_only else build.entries
+    if mode == "position":
+        entries_by_key = {bytes(row.key): entry_of(row) for row in entries.itertuples()}
+        blocks = position_preserved_blocks(line_notes, entries_by_key, counting["max_notes"])
+    else:
+        guitar = passage["guitar"]
+        blocks = notes_only_blocks(line_notes, entries_by_path(entries), guitar["tuning"], guitar["highest_fret"],
+                                   counting["max_notes"])
+    cover = choose_cover(blocks, len(line_notes))
+    uncovered = uncovered_positions(cover, line_notes)
+    passage_indices = passage_indices_of_positions(line, passage)
+    stitch_result = {
+        "build": str(build.folder), "mode": mode, "members_only": members_only,
+        "blocks": [row for block in cover if (row := block_row(block, passage_indices)) is not None],
+        "uncovered": sorted(index for position in uncovered for index in passage_indices[position]),
+        "counted": len(line_notes), "covered": sum(block.length for block in cover),
+    }
+    return cover, passage_indices, stitch_result
+
+
+def coverage_line(stitch_result: dict[str, Any]) -> str:
+    """One status line: how much of the line the blocks hold."""
+    return (f"{len(stitch_result['blocks'])} blocks hold {stitch_result['covered']} of {stitch_result['counted']} "
+            f"counted notes; {len(stitch_result['uncovered'])} uncovered")
+
+
+def passage_line(source: dict[str, Any], gp_parser_config_path: Path, build: CatalogueBuild,
+                 positions_by_onset: dict[int, tuple[int, int]] | None = None) -> pd.DataFrame:
+    """The passage's notes (its track, staff 0, its voice, its bars) as a catalogue line, cut by the build's rules
+    (see build_track_line); moved to a realisation's strings and frets if given (see events_as_played)."""
+    counting = build.info["config"]["counting"]
     events, _ = parse_gp_file_with_tempo(Path(source["gp"]), load_gp_parser_config(gp_parser_config_path))
     first_bar, last_bar = (int(bar) for bar in source["bars"].split("-"))
     chosen = [event for event in events
@@ -95,7 +153,9 @@ def passage_line(source: dict[str, Any], gp_parser_config_path: Path, long_rest_
               and event.voice_index == source["voice"] and first_bar - 1 <= event.bar_index <= last_bar - 1]
     if not chosen:
         raise ValueError("no notes in those bars")
-    return build_track_line(chosen, long_rest_bars, squash_repeats)
+    if positions_by_onset:
+        chosen = events_as_played(chosen, positions_by_onset)
+    return build_track_line(chosen, counting["long_rest_bars"], counting["squash_repeats"])
 
 
 def entry_of(row: Any) -> Entry:

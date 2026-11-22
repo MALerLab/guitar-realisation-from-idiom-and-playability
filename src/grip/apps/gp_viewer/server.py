@@ -35,7 +35,7 @@ from grip.apps.gp_viewer.datasets import DatasetIndex, resolve_inside
 from grip.apps.gp_viewer.flags import FlagStore
 from grip.apps.gp_viewer.optimiser_view import cost_knobs, lr_knob_sweep, save_preset
 from grip.apps.gp_viewer.runs import find_run_file, load_run_view, optimise_passage
-from grip.apps.gp_viewer.stitch import stitch_passage
+from grip.apps.gp_viewer.stitch import realisation_entries, stitch_passage
 from grip.apps.gp_viewer.storage import StorageIndex
 from grip.core.guitar import load_guitar_setup
 from grip.core.paths import repo_root
@@ -265,7 +265,7 @@ def catalogue_build(app: ViewerApp, params: dict[str, str]) -> CatalogueBuild:
 
 
 def catalogue_builds(app: ViewerApp, params: dict[str, str]) -> list[dict[str, Any]]:
-    """Every catalogue build in the storage folder, newest first (the Stitch pop-up's choice)."""
+    """Every catalogue build in the storage folder, newest first (the top bar's catalogue pick)."""
     return app.storage.catalogue_builds()
 
 
@@ -372,6 +372,13 @@ def stitch(app: ViewerApp, body: dict[str, Any]) -> dict[str, Any]:
                           app.run_config_path)
 
 
+def entries(app: ViewerApp, body: dict[str, Any]) -> dict[str, Any]:
+    """Break a realisation into one catalogue build's entries (see stitch.realisation_entries); body = passage
+    settings + "build" (full path), "choices", "members_only". Nothing is saved."""
+    return realisation_entries(body, catalogue_build(app, {"build": str(body.get("build", ""))}), app.datasets,
+                               app.run_config_path)
+
+
 def passage_for_annotating(app: ViewerApp, body: dict[str, Any]) -> dict[str, Any]:
     """A passage + the source tab's draft for annotate mode (see annotate.cut_passage)."""
     return cut_passage(body, app.datasets, app.run_config_path)
@@ -419,6 +426,7 @@ def optimiser_preset(app: ViewerApp, body: dict[str, Any]) -> dict[str, str]:
 POST_ROUTES: dict[str, Callable[[ViewerApp, dict[str, Any]], Any]] = {
     "/api/optimise": optimise,
     "/api/stitch": stitch,
+    "/api/entries": entries,
     "/api/passage": passage_for_annotating,
     "/api/reference": reference,
     "/api/flags": set_flags,

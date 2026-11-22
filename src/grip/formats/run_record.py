@@ -215,8 +215,8 @@ def versioned_run_path(runs_folder: Path, version: str, song: str, bars: str | N
     """v<version>/v<version>_yymmdd_<song>[_bars<a>-<b>][_<comment>].json in the runs folder; _2, _3 … if taken.
 
     Args:
-        runs_folder: Folder holding one subfolder per hand model version.
-        version: Hand model version, e.g. "1.1" (the cost config's).
+        runs_folder: Folder holding one subfolder per optimiser version.
+        version: Optimiser version, e.g. "1.1" (the cost config's).
         song: Song or lick name (turned into lowercase words joined by _).
         bars: Bar range as "37-41", or None for a lick.
         comment: Optional free text from --comment.

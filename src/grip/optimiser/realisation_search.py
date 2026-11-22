@@ -3,7 +3,7 @@
 Exact column-by-column search (Viterbi, keeping the k best routes per state). One column per
 playable note; null symbols are skipped, both hands carry their state across them.
 
-State of one note (docs/design_spec.md, hand model v1.0):
+State of one note (docs/design_spec.md):
 - hand state: position (string, fret), finger (a real choice; 0 = open string) and hand position
   (the index finger's fret). Only hand states the hand position can play are kept
   (finger_stretch_cost < inf); the next move sees the previous note's hand state

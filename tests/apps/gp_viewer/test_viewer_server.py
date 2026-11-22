@@ -124,7 +124,9 @@ def write_toy_catalogue(build: Path) -> None:
                   "song_id": [0], "track_id": [0], "tuning": [[64, 59, 55, 50, 45, 40]]}).to_parquet(build / "tracks.parquet")
     write_json(build / "build_info.json", {"built_at": "2026-11-17T09:00:00", "songs_chosen": 1,
                                            "config": {"dataset_root": str(TOY_DATASET_ROOT), "member_min_songs": 1,
-                                                      "fragment_share": 0.9}})
+                                                      "fragment_share": 0.9,
+                                                      "counting": {"max_notes": 3, "long_rest_bars": 1.0,
+                                                                   "squash_repeats": True}}})
 
 
 def write_toy_storage(storage: Path) -> None:
@@ -424,6 +426,30 @@ def test_catalogue_refusals(viewer):
     assert get(viewer, "/api/catalogue", build=str(viewer["folder"]))[0] == 404
     assert catalogue_get(viewer, "/api/catalogue/path", path="9 9 9")[0] == 404
     assert catalogue_get(viewer, "/api/catalogue/entry", entry_id=99)[0] == 404
+
+
+STITCH_PART = {"build", "mode", "members_only", "blocks", "uncovered", "counted", "covered"}
+
+
+def test_stitch_answers_a_run_view_with_its_blocks(viewer):
+    build = str(viewer["storage"] / "catalogue/toy_build")
+    request = {**TOY_PASSAGE, "build": build, "mode": "position", "members_only": False}
+    status, reply = post(viewer, "/api/stitch", request)
+    assert status == 200, reply
+    assert reply["kind"] == "stitch" and len(reply["realisations"]) == 1 and set(reply["stitch"]) == STITCH_PART
+    assert reply["stitch"]["build"] == build and reply["report"]
+
+
+def test_entries_of_a_realisation_answer_the_same_parts_as_stitch(viewer):
+    build = str(viewer["storage"] / "catalogue/toy_build")
+    _, cut = post(viewer, "/api/passage", TOY_PASSAGE)
+    choices = [{"passage_index": choice["passage_index"], "string": choice["string"], "fret": choice["fret"]}
+               for choice in cut["draft"]]
+    request = {**TOY_PASSAGE, "build": build, "members_only": True, "choices": choices}
+    status, reply = post(viewer, "/api/entries", request)
+    assert status == 200, reply
+    assert set(reply) == STITCH_PART | {"report"} and reply["mode"] == "position" and reply["counted"] > 0
+    assert post(viewer, "/api/entries", {**TOY_PASSAGE, "build": str(viewer["folder"]), "choices": choices})[0] == 404
 
 
 # ---- junk flags ----

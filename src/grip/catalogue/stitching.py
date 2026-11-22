@@ -7,16 +7,19 @@ A block = one catalogue entry laid over a run of the line. Two ways an entry fit
   the one in the most songs wins.
 The cover keeps the fewest uncovered notes, then the fewest blocks, then the most songs. A note alone in its
 stretch (between two run breaks) can sit in no block, so it never counts as uncovered.
+A realisation is broken into entries the same way: its notes moved to its strings and frets (events_as_played),
+then position preserved.
 """
 
-from collections import defaultdict
-from dataclasses import dataclass
+from collections import Counter, defaultdict
+from dataclasses import dataclass, replace
 
 import numpy as np
 import pandas as pd
 
 from grip.catalogue.run_keys import decode_tokens, interval_path_texts, keys_to_tokens, run_tokens, tokens_to_keys
 from grip.catalogue.track_line import KIND_FRETTED, KIND_OPEN
+from grip.formats.gp_parser import NoteEvent
 
 
 @dataclass(frozen=True)
@@ -40,6 +43,24 @@ class Block:
     length: int
     entry: Entry
     positions: tuple[tuple[int, int], ...] | None = None
+
+
+def events_as_played(events: list[NoteEvent], positions_by_onset: dict[int, tuple[int, int]]) -> list[NoteEvent]:
+    """The tab's events moved to where a realisation plays them; pitch, timing and marks stay.
+
+    Args:
+        events: Note events of one line (one track, staff and voice).
+        positions_by_onset: Onset tick → (string, fret) of the realisation's note there. A chord (several events on
+            one onset) stays as the tab has it.
+    """
+    events_per_onset = Counter(event.onset_tick for event in events)
+    played = []
+    for event in events:
+        position = positions_by_onset.get(event.onset_tick)
+        if position is not None and events_per_onset[event.onset_tick] == 1:
+            event = replace(event, string=position[0], fret=position[1])
+        played.append(event)
+    return played
 
 
 def position_preserved_blocks(line_notes: pd.DataFrame, entries_by_key: dict[bytes, Entry],

@@ -291,8 +291,14 @@ async function fetchJson(route, params) {
   return response.json();
 }
 
-/** Open a catalogue build (from the Files tab) in the catalogue view. True if it opened. */
-async function openCatalogue(folder) {
+/**
+ * Load a catalogue build into the catalogue view (the top bar's catalogue pick, or the Files tab). True if it opened.
+ *
+ * Args:
+ *   folder: The build's folder (full path).
+ *   showView: Switch to the catalogue view too (the Files tab); the top bar's pick stays where it is.
+ */
+async function openCatalogue(folder, showView = true) {
   const previousBuild = catalogue.build;
   catalogue.build = folder;
   const summary = await fetchJson('/api/catalogue', {});
@@ -303,7 +309,7 @@ async function openCatalogue(folder) {
   Object.assign(catalogue, { summary, path: null, entry: null, phrase: null, history: [] });
   fillLengthChoice();
   showPhrase(null);  // the last build's occurrence leaves the player
-  setView('catalogue');
+  if (showView) setView('catalogue');
   showDetail();
   showPlayer();
   await showPaths(1);

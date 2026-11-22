@@ -79,6 +79,11 @@ input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px s
 #realisation-select { max-width: 280px; }
 #realisation-select:disabled { display: none; }
 #status { color: var(--muted); font-size: 12px; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#catalogue-select { max-width: 220px; }
+#catalogue-select.empty { color: var(--muted); }
+#bars-box { display: flex; align-items: center; gap: 4px; }
+#bars-box input { width: 58px; }
+#entries-toggle[aria-pressed="true"] { background: var(--stitch); border-color: var(--stitch); color: var(--stitch-text); }
 .chevron { width: 14px; height: 14px; }
 
 /* Run settings pop-up, under its button */
@@ -94,6 +99,11 @@ input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px s
 .popover .hint { margin: 10px 0; }
 .popover-field { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--muted); margin-bottom: 10px; }
 .popover-field select { width: 100%; color: var(--text); }
+/* Optimise pop-up: a method switch, then only that method's settings */
+.popover [hidden] { display: none; }
+#optimise-method { display: flex; margin-bottom: 10px; }
+#optimise-method button { flex: 1; justify-content: center; }
+.method-settings { margin-top: 10px; }
 #stitch-mode { display: flex; margin-bottom: 8px; }
 #stitch-mode button { flex: 1; justify-content: center; font-size: 12px; }
 .popover .check { font-size: 12px; display: flex; gap: 6px; align-items: center; }
@@ -275,7 +285,8 @@ body.catalogue-mode #catalogue-view { display: flex; }
 body.catalogue-mode #main, body.catalogue-mode #right-column { display: none; }
 /* Tab-view controls mean nothing in the catalogue view */
 body.catalogue-mode #subtitle, body.catalogue-mode #realisation-select, body.catalogue-mode .popover-anchor,
-body.catalogue-mode #edit-button, body.catalogue-mode #save-button { display: none; }
+body.catalogue-mode #edit-button, body.catalogue-mode #save-button, body.catalogue-mode #bars-box,
+body.catalogue-mode #entries-toggle { display: none; }
 .mini-tab { margin: 0; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; white-space: pre; color: var(--text); overflow: hidden; width: max-content; max-width: 100%; }
 .path-text { font-family: ui-monospace, monospace; }
 
@@ -437,4 +448,4 @@ body.optimiser-mode #edit-button, body.optimiser-mode #save-button { display: no
 .preset-row { display: flex; gap: 6px; }
 .preset-row input { flex: 1; }
 #preset-status { margin: 6px 0 0; word-break: break-all; }
-#preset-status.warning { color: var(--warn); }
+#preset-status.warning, #catalogue-missing { color: var(--warn); }

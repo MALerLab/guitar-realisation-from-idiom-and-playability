@@ -3,8 +3,8 @@
 from toy_tabs import STANDARD_TUNING, chord, n, toy_events
 
 from grip.catalogue.run_keys import interval_path_texts, run_tokens, tokens_to_keys
-from grip.catalogue.stitching import (Entry, choose_cover, notes_only_blocks, position_preserved_blocks,
-                                      uncovered_positions)
+from grip.catalogue.stitching import (Entry, choose_cover, events_as_played, notes_only_blocks,
+                                      position_preserved_blocks, uncovered_positions)
 from grip.catalogue.track_line import build_track_line, counted_notes
 
 HIGHEST_FRET = 24
@@ -68,6 +68,20 @@ def test_position_preserved_needs_the_tabs_own_strings():
     entries = entries_from([n(3, 5), n(3, 7), n(3, 9)])
     line_notes = line_of([n(2, 1), n(2, 3), n(2, 5)])
     assert position_preserved_blocks(line_notes, entries, MAX_NOTES) == []
+
+
+def test_a_realisation_is_broken_into_the_entries_of_its_own_strings():
+    # The tab plays the run on string 2; a realisation moves it to string 3 frets 5 7 9, which the catalogue knows.
+    # The chord stays as the tab has it, whatever the realisation says for its onset.
+    entries = entries_from([n(3, 5), n(3, 7), n(3, 9)])
+    events = toy_events([n(2, 1), n(2, 3), n(2, 5), chord(n(2, 5), n(1, 5))])
+    onsets = sorted({event.onset_tick for event in events})
+    played = events_as_played(events, {onsets[0]: (3, 5), onsets[1]: (3, 7), onsets[2]: (3, 9), onsets[3]: (4, 9)})
+    assert [(event.string, event.fret) for event in played] == [(3, 5), (3, 7), (3, 9), (2, 5), (1, 5)]
+    assert [event.pitch for event in played] == [event.pitch for event in events]
+    line_notes = counted_notes(build_track_line(played, long_rest_bars=1.0, squash_repeats=True))
+    blocks = position_preserved_blocks(line_notes, entries, MAX_NOTES)
+    assert any(block.first_position == 0 and block.length == 3 for block in blocks)
 
 
 def test_notes_only_places_the_layout_where_the_pitches_fit():
