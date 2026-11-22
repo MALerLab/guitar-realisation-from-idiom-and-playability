@@ -1,6 +1,7 @@
 """The lr-knob sweep: every distinct cheapest realisation along the lr-knob, and the flips between them.
 
-A realisation's total at lr-knob d is F + d × P (F, P = its raw fretting and picking totals): a straight line in d.
+A realisation's total at lr-knob d is F + d × P (P = its raw picking total, F = everything else: fretting, and glue
+when the chooser is on): a straight line in d.
 The cheapest realisation at each d is the lowest of these lines, so the flips (lr-knob values where the cheapest
 realisation changes) are where two of them cross. Found exactly, no step size (docs/design_spec.md §7):
 1. search the cheapest realisation at both ends of an lr-knob stretch
@@ -14,6 +15,7 @@ Searches ≈ 2 × the realisations found.
 from dataclasses import dataclass, replace
 
 from grip.core.hand import HandProfile
+from grip.core.menu import MenuItem
 from grip.core.passage import Passage
 from grip.optimiser.cost_terms import CostConfig
 from grip.optimiser.realisation_search import Realisation, search_realisations
@@ -38,7 +40,7 @@ class LrKnobSegment:
 
 
 def sweep_lr_knob(passage: Passage, config: CostConfig, profile: HandProfile,
-                  habits: tuple[str, ...]) -> list[LrKnobSegment]:
+                  habits: tuple[str, ...], menu: tuple[MenuItem, ...] | None = None) -> list[LrKnobSegment]:
     """Find every flip between the config's lr_knob_min and lr_knob_max; one segment per stretch between flips.
 
     Args:
@@ -46,12 +48,13 @@ def sweep_lr_knob(passage: Passage, config: CostConfig, profile: HandProfile,
         config: Cost knobs (lr_knob_min, lr_knob_max; lr_knob = the value the segments' totals are reported at).
         profile: The player's hand profile.
         habits: Which pick plans to write per realisation.
+        menu: The chooser's menu (see search_realisations); None = the hand models alone.
 
     Returns:
         Segments sorted by lr_knob_from, covering lr_knob_min → lr_knob_max.
     """
     def cheapest_at(lr_knob: float) -> Realisation:
-        return cheapest_realisation_at_lr_knob(passage, config, profile, habits, lr_knob)
+        return cheapest_realisation_at_lr_knob(passage, config, profile, habits, lr_knob, menu)
 
     at_min = cheapest_at(config.lr_knob_min)
     at_max = cheapest_at(config.lr_knob_max)
@@ -76,7 +79,8 @@ def sweep_lr_knob(passage: Passage, config: CostConfig, profile: HandProfile,
 
 
 def cheapest_realisation_at_lr_knob(passage: Passage, config: CostConfig, profile: HandProfile,
-                                    habits: tuple[str, ...], lr_knob: float) -> Realisation:
+                                    habits: tuple[str, ...], lr_knob: float,
+                                    menu: tuple[MenuItem, ...] | None = None) -> Realisation:
     """The single cheapest realisation with the lr-knob set to one value (exact: one route kept per state).
 
     Args:
@@ -85,9 +89,10 @@ def cheapest_realisation_at_lr_knob(passage: Passage, config: CostConfig, profil
         profile: The player's hand profile.
         habits: Which pick plans to write.
         lr_knob: The lr-knob value to search at.
+        menu: The chooser's menu; None = the hand models alone.
     """
     return search_realisations(passage, replace(config, lr_knob=lr_knob), profile, k_best=1, k_search_multiplier=1,
-                               habits=habits)[0]
+                               habits=habits, menu=menu)[0]
 
 
 def find_flips(left: Realisation, right: Realisation, left_lr_knob: float, right_lr_knob: float,
@@ -125,7 +130,7 @@ def line_crossing(left: Realisation, right: Realisation) -> float | None:
     slope_gap = left_totals["picking"] - right_totals["picking"]
     if slope_gap <= COST_TOLERANCE * max(1.0, left_totals["picking"]):
         return None
-    return (right_totals["fretting"] - left_totals["fretting"]) / slope_gap
+    return (unscaled_total(right_totals) - unscaled_total(left_totals)) / slope_gap
 
 
 def cost_at_lr_knob(realisation: Realisation, lr_knob: float) -> float:
@@ -136,7 +141,12 @@ def cost_at_lr_knob(realisation: Realisation, lr_knob: float) -> float:
         lr_knob: The lr-knob value.
     """
     totals = realisation.hand_totals()
-    return totals["fretting"] + lr_knob * totals["picking"]
+    return unscaled_total(totals) + lr_knob * totals["picking"]
+
+
+def unscaled_total(totals: dict[str, float]) -> float:
+    """The part of a realisation's raw totals the lr-knob doesn't scale: everything but picking."""
+    return sum(value for group, value in totals.items() if group != "picking")
 
 
 def cost_slack(realisation: Realisation, lr_knob: float) -> float:

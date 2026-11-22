@@ -84,7 +84,8 @@ def position_preserved_blocks(line_notes: pd.DataFrame, entries_by_key: dict[byt
 
 def notes_only_blocks(line_notes: pd.DataFrame, entries_by_path: dict[str, list[tuple[bytes, Entry]]],
                       tuning: list[int], highest_fret: int, max_notes: int) -> list[Block]:
-    """Every run of the line whose interval path has a catalogue layout that fits the guitar there.
+    """Every run of the line whose interval path has a catalogue layout that fits the guitar there; of the layouts
+    that fit, the one in the most songs.
 
     Args:
         line_notes: Counted notes of one line (row i = line position i).
@@ -92,6 +93,22 @@ def notes_only_blocks(line_notes: pd.DataFrame, entries_by_path: dict[str, list[
         tuning: Open-string pitches of the guitar the layouts are placed on, string 1 first.
         highest_fret: Highest fret of that guitar.
         max_notes: Longest run looked at.
+    """
+    return fitting_blocks(line_notes, entries_by_path, tuning, highest_fret, max_notes, most_songs_only=True)
+
+
+def fitting_blocks(line_notes: pd.DataFrame, entries_by_path: dict[str, list[tuple[bytes, Entry]]],
+                   tuning: list[int], highest_fret: int, max_notes: int, most_songs_only: bool = False) -> list[Block]:
+    """Every catalogue layout that fits a run of the line, placed on the guitar from the run's pitches (the
+    chooser's menu; notes only Stitch keeps one per run).
+
+    Args:
+        line_notes: Counted notes of one line (row i = line position i); their strings and frets are not used.
+        entries_by_path: Catalogue (key, entry) pairs by interval path text, most songs first.
+        tuning: Open-string pitches of the guitar the layouts are placed on, string 1 first.
+        highest_fret: Highest fret of that guitar.
+        max_notes: Longest run looked at.
+        most_songs_only: Keep only the first layout that fits per run (the one in the most songs).
     """
     blocks = []
     for length in range(2, min(max_notes, len(line_notes)) + 1):
@@ -102,7 +119,8 @@ def notes_only_blocks(line_notes: pd.DataFrame, entries_by_path: dict[str, list[
                 positions = place_layout(run_notes, key, tuning, highest_fret)
                 if positions is not None:
                     blocks.append(Block(start, length, entry, positions))
-                    break
+                    if most_songs_only:
+                        break
     return blocks
 
 

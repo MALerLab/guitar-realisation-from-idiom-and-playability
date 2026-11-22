@@ -12,14 +12,17 @@ from datetime import datetime
 from pathlib import Path
 
 from grip.core.passage import Passage
-from grip.optimiser.cost_terms import NONE, TERM_HAND
+from grip.optimiser.cost_terms import NONE, TERM_GROUPS, TERM_HAND
 from grip.core.hand import FINGER_NAMES
+from grip.core.menu import MenuItem
 from grip.optimiser.realisation_search import Flag, Realisation
 
 STROKE_LETTERS = {"down": "D", "up": "U"}
 # Format tag + version written into every run file (the gp_viewer checks it).
 # 1.1 = 1.0 + per-realisation "hand_totals", + "lr_knob_sweep" in sweep runs (a superset: 1.0 readers still work)
-RUN_FILE_FORMAT = {"name": "grip_optimiser_run", "version": "1.1"}
+# 1.2 = 1.1 + per-realisation "blocks" (the chooser's catalogue entries), "glue" in hand_totals and move terms,
+#       + "chooser" (catalogue, menu size) when it ran (a superset again)
+RUN_FILE_FORMAT = {"name": "grip_optimiser_run", "version": "1.2"}
 
 
 def stroke_letter(realisation: Realisation, index: int, stroke: str) -> str:
@@ -93,7 +96,7 @@ def render_breakdown(realisation: Realisation) -> str:
     term_names = list(TERM_HAND)
     header = f"{'note':>4} {'str':>3} {'fret':>4}" + "".join(f"{n[:9]:>10}" for n in term_names)
     lines = [header + f"{'total':>8}"]
-    hand_totals = {"fretting": 0.0, "picking": 0.0}
+    hand_totals = dict.fromkeys(TERM_GROUPS, 0.0)
     for move in realisation.moves:
         choice = realisation.choices[move.passage_index]
         values = "".join(f"{move.terms.get(name, 0.0):>10.2f}" for name in term_names)
@@ -101,7 +104,8 @@ def render_breakdown(realisation: Realisation) -> str:
                      f"{values}{move.total:>8.2f}")
         for name, value in move.terms.items():
             hand_totals[TERM_HAND[name]] += value
-    lines.append(f"term sums by hand: fretting {hand_totals['fretting']:.2f}, picking {hand_totals['picking']:.2f}")
+    lines.append(f"term sums by hand: fretting {hand_totals['fretting']:.2f}, picking {hand_totals['picking']:.2f}"
+                 f", glue {hand_totals['glue']:.2f}")
     return "\n".join(lines)
 
 
@@ -165,6 +169,14 @@ def passage_to_dict(passage: Passage) -> dict:
             "report": list(passage.report), "notes": notes}
 
 
+def block_to_dict(block: MenuItem) -> dict:
+    """One catalogue entry the chooser played: the passage notes it covers (first, last, all) and the entry."""
+    return {"passage_first": block.passage_indices[0], "passage_last": block.passage_indices[-1],
+            "passage_indices": list(block.passage_indices), "length": len(block.passage_indices),
+            "entry_id": block.entry_id, "interval_path": block.interval_path, "layout": block.layout,
+            "song_count": block.song_count}
+
+
 def realisation_to_dict(realisation: Realisation, rank: int, best: Realisation, flag_notes_around: int) -> dict:
     """One realisation as plain JSON-ready data: choices, move costs, flags and pick plans.
 
@@ -192,7 +204,7 @@ def realisation_to_dict(realisation: Realisation, rank: int, best: Realisation, 
     pick_plans = [{"habit": plan.habit, "strokes": list(plan.strokes), "stroke_letters": stroke_letters(realisation, plan.strokes),
                    "flags": list(plan.flags)} for plan in realisation.pick_plans]
     return {"rank": rank, "total_cost": realisation.total_cost, "hand_totals": realisation.hand_totals(),
-            "differs_at_notes": differing_notes(realisation, best),
+            "differs_at_notes": differing_notes(realisation, best), "blocks": [block_to_dict(block) for block in realisation.blocks],
             "choices": choices, "moves": [asdict(move) for move in realisation.moves],
             "flags": [{**asdict(flag), "notes_around": notes_around(realisation, flag, flag_notes_around)}
                       for flag in realisation.flags],

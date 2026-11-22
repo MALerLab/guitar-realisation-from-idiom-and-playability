@@ -9,12 +9,16 @@ import json
 import subprocess
 import time
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 
 import yaml
 
+from grip.catalogue.menu import (gp_line_events, load_build_counting, load_entries, midi_line_events, passage_line,
+                                 passage_menu)
 from grip.core.guitar import load_guitar_setup
 from grip.core.hand import load_hand_profile
+from grip.core.menu import MenuItem
 from grip.core.passage import Passage
 from grip.core.paths import repo_root
 from grip.formats.midi import load_midi_passage
@@ -119,8 +123,56 @@ def load_source_passage(source: dict, run_config_path: Path) -> Passage:
     return load_lick(Path(source["lick"]), guitar, switches, tempo, tuning_shift)
 
 
+def with_catalogue(run_config: dict, catalogue: dict | None) -> dict:
+    """The run config with its catalogue swapped for another one (the gp_viewer's pick); catalogue None = keep the
+    run config's, {"build": None} = no catalogue (the hand models alone)."""
+    if catalogue is None:
+        return run_config
+    return {**run_config, "catalogue": catalogue if catalogue.get("build") else None}
+
+
+def load_source_menu(source: dict, passage: Passage, run_config: dict) -> tuple[MenuItem, ...] | None:
+    """The chooser's menu for a source's passage (grip.catalogue.menu), or None: no catalogue in the run config,
+    or a lick source (no tab or MIDI file to cut a line from).
+
+    Args:
+        source: See load_source_passage.
+        passage: The passage loaded from it.
+        run_config: The loaded run config.
+    """
+    catalogue = run_config.get("catalogue")
+    if not catalogue or not ("gp" in source or "midi" in source):
+        return None
+    build = repo_root() / catalogue["build"]
+    counting = load_build_counting(build)
+    first_bar, last_bar = (None, None) if source.get("bars") is None else (int(bar) for bar in source["bars"].split("-"))
+    if "gp" in source:
+        events = gp_line_events(Path(source["gp"]), source["track"], source["voice"], first_bar, last_bar,
+                                run_config["gp_parser_config"])
+    else:
+        events = midi_line_events(Path(source["midi"]), first_bar, last_bar, run_config["midi_default_beats_per_bar"],
+                                  passage.guitar.tuning)
+    return tuple(passage_menu(passage_line(events, counting), [note.onset_tick for note in passage.notes],
+                              cached_entries(str(build), bool(catalogue["members_only"])), passage.guitar.tuning,
+                              passage.guitar.highest_fret, counting["max_notes"]))
+
+
+@lru_cache(maxsize=4)
+def cached_entries(build: str, members_only: bool):
+    """A build's entries, read once per process (the gp_viewer sweeps again on every knob edit)."""
+    return load_entries(Path(build), members_only)
+
+
+def chooser_summary(run_config: dict, menu: tuple[MenuItem, ...] | None) -> dict | None:
+    """What a run record keeps about the chooser: the catalogue, members only, the menu's size; None if it didn't run."""
+    if menu is None:
+        return None
+    build = (repo_root() / run_config["catalogue"]["build"]).resolve()  # data/ links resolved: the storage path
+    return {**run_config["catalogue"], "build": str(build), "menu_items": len(menu)}
+
+
 def run_search(source: dict, k_best: int | None, comment: str | None,
-               run_config_path: Path) -> tuple[list[Realisation], dict]:
+               run_config_path: Path, catalogue: dict | None = None) -> tuple[list[Realisation], dict]:
     """Load the source's passage, search it, and build the run record (see build_run_record).
 
     Args:
@@ -128,21 +180,26 @@ def run_search(source: dict, k_best: int | None, comment: str | None,
         k_best: How many realisations; None = the run config's k_best.
         comment: Free text kept in the record, or None.
         run_config_path: The run config to read.
+        catalogue: Another catalogue for the chooser ({"build", "members_only"}; build None = none), see
+            with_catalogue; None = the run config's.
 
     Returns:
         The realisations (cheapest first) and the run record.
     """
-    run_config = load_run_config(run_config_path)
+    run_config = with_catalogue(load_run_config(run_config_path), catalogue)
     search = run_config["search"]
     passage = load_source_passage(source, run_config_path)
     k_best = k_best or search["k_best"]
     started = time.perf_counter()
+    menu = load_source_menu(source, passage, run_config)
+    multiplier = search["k_search_multiplier"] if menu is None else search["chooser_k_search_multiplier"]
     realisations = search_realisations(passage, load_cost_config(run_config["cost_config"]),
-                                       load_hand_profile(run_config["hand_profile"]), k_best,
-                                       search["k_search_multiplier"], tuple(run_config["pick_plans"]["habits"]))
+                                       load_hand_profile(run_config["hand_profile"]), k_best, multiplier,
+                                       tuple(run_config["pick_plans"]["habits"]), menu=menu)
     seconds = time.perf_counter() - started
     record = build_run_record(realisations, {**source, "k_best": k_best}, comment, seconds, run_config,
                               run_config_path)
+    record["chooser"] = chooser_summary(run_config, menu)
     return realisations, record
 
 
@@ -168,7 +225,8 @@ def merge_cost_overrides(cost_config: dict, cost_overrides: dict) -> dict:
 
 
 def run_lr_knob_sweep(source: dict, comment: str | None, run_config_path: Path,
-                   cost_overrides: dict | None = None) -> tuple[list[LrKnobSegment], dict, dict]:
+                      cost_overrides: dict | None = None,
+                      catalogue: dict | None = None) -> tuple[list[LrKnobSegment], dict, dict]:
     """Load the source's passage, sweep the lr-knob over it, build the sweep (for the gp_viewer) and the run record.
 
     Args:
@@ -176,6 +234,7 @@ def run_lr_knob_sweep(source: dict, comment: str | None, run_config_path: Path,
         comment: Free text kept in the record, or None.
         run_config_path: The run config to read.
         cost_overrides: Merged onto the cost config for this sweep only, never written to configs/; None = none.
+        catalogue: Another catalogue for the chooser (see run_search); None = the run config's.
 
     Returns:
         The segments (sorted by lr_knob_from), the sweep {"lr_knob": {min, max, default, scale}, "terms": TERM_HAND,
@@ -183,14 +242,15 @@ def run_lr_knob_sweep(source: dict, comment: str | None, run_config_path: Path,
         + "lr_knob_sweep": the same without the realisations, each segment pointing at its realisation's rank;
         realisations = one per segment, in lr-knob order).
     """
-    run_config = load_run_config(run_config_path)
+    run_config = with_catalogue(load_run_config(run_config_path), catalogue)
     raw_cost_config = merge_cost_overrides(yaml.safe_load(Path(run_config["cost_config"]).read_text()),
                                            cost_overrides or {})
     config = cost_config_from_dict(raw_cost_config)
     passage = load_source_passage(source, run_config_path)
     started = time.perf_counter()
+    menu = load_source_menu(source, passage, run_config)
     segments = sweep_lr_knob(passage, config, load_hand_profile(run_config["hand_profile"]),
-                          tuple(run_config["pick_plans"]["habits"]))
+                             tuple(run_config["pick_plans"]["habits"]), menu=menu)
     seconds = time.perf_counter() - started
 
     # Differing notes are counted against the segment holding the default lr-knob
@@ -198,6 +258,7 @@ def run_lr_knob_sweep(source: dict, comment: str | None, run_config_path: Path,
     best = segment_at_lr_knob(segments, config.lr_knob).realisation
     record = build_run_record(realisations, source, comment, seconds, run_config, run_config_path,
                               cost_overrides, best)
+    record["chooser"] = chooser_summary(run_config, menu)
     lr_knob = {"min": config.lr_knob_min, "max": config.lr_knob_max, "default": config.lr_knob,
                "scale": raw_cost_config["lr_knob"]["scale"]}
     record["lr_knob_sweep"] = {"lr_knob": lr_knob, "segments": [

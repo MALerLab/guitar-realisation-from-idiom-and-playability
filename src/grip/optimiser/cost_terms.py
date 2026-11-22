@@ -11,6 +11,9 @@ Fretting hand: hand position = the index finger's fret; reach comes from the han
 another hand position (a hand shift); the note itself always stays playable.
 Picking hand: strokes cost nothing (grip.optimiser.pick_plans writes them after the search); its one
 cost is the string change between picked notes.
+
+Glue (the chooser, with a catalogue on): a cut between two notes not inside one catalogue entry. It belongs to
+neither hand, so the lr-knob never scales it (design_spec §2).
 """
 
 from dataclasses import dataclass
@@ -31,7 +34,10 @@ TERM_HAND = {
     "stretch": "fretting",
     "open_string_bend": "fretting",
     "no_go_zone": "fretting",
+    "glue": "glue",
 }
+# The groups a realisation's raw totals are split into (the lr-knob scales "picking" only)
+TERM_GROUPS = ("fretting", "picking", "glue")
 # Slack for comparing mm spans: a measured span converted to mm must count as reachable
 SPAN_TOLERANCE_MM = 1e-6
 
@@ -62,6 +68,7 @@ class CostConfig:
         lr_knob: The balance between the hands: a move costs fretting terms + lr-knob × picking terms.
         lr_knob_min: Lowest lr-knob value the sweep looks at.
         lr_knob_max: Highest lr-knob value the sweep looks at.
+        glue: Cost of one cut between catalogue entries (the chooser; only with a catalogue on).
     """
 
     string_change_one_string: float
@@ -83,6 +90,7 @@ class CostConfig:
     lr_knob: float
     lr_knob_min: float
     lr_knob_max: float
+    glue: float = 0.0
 
 
 def load_cost_config(config_path: Path) -> CostConfig:
@@ -126,6 +134,8 @@ def cost_config_from_dict(raw: dict) -> CostConfig:
         lr_knob=float(lr_knob["default"]),
         lr_knob_min=float(lr_knob["min"]),
         lr_knob_max=float(lr_knob["max"]),
+        # Cost v1.2 and earlier have no chooser: cuts cost nothing
+        glue=float(raw.get("chooser", {}).get("glue", 0.0)),
     )
 
 

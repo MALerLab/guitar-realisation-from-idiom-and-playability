@@ -20,7 +20,7 @@ from grip.formats.run_record import differing_notes, render_breakdown, render_fl
 from grip.optimiser.realisation_search import Realisation
 from grip.pipelines.optimiser_run import run_lr_knob_sweep, run_search, save_run_record
 
-RUN_CONFIG = repo_root() / "configs/optimiser/optimiser_run_v1.2.yaml"
+RUN_CONFIG = repo_root() / "configs/optimiser/optimiser_run_v1.3.yaml"
 
 
 def main() -> None:
