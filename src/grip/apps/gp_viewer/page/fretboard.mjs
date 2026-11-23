@@ -1,6 +1,7 @@
 // GRIP GP viewer, fretboard: the fretboard under the tab. While playing it marks the notes sounding
-// (current, red) and the events around them (previous orange, next green, fading with distance);
-// otherwise it marks the highlighted notes (orange). Also the text of the toolbar's tuning label.
+// (current, red) and the events around them (previous orange, next green, fading with distance). Paused, one
+// clicked note gets the same picture; several highlighted notes are marked orange. A mark shows the fretting
+// finger (1–4) when the tab gives one. Also the text of the toolbar's tuning label.
 //
 // Two parts:
 //   - Drawing: tuning, fret count and positions to mark in, SVG out. No access to the page.
@@ -9,7 +10,8 @@
 //     It registers no alphaTab player listeners: those stay at the end of viewer.mjs (see there).
 //
 // A tuning is open-string MIDI pitches, string 1 (highest) first, as alphaTab, run files and manifests
-// store it. A position is { string, fret }: string 1 = highest, fret 0 = open string.
+// store it. A position is { string, fret, finger }: string 1 = highest, fret 0 = open string, finger 1–4
+// (index to pinky) or null.
 // Colours and line widths live in viewer.css (the fretboard-* classes, one fretboard-mark-<kind> per mark kind).
 import * as alphaTab from '/alphatab/alphaTab.mjs';
 
@@ -39,6 +41,8 @@ const BOTTOM_MARGIN = 20;
 const RIGHT_MARGIN = 10;
 // Marks: a dot in the fret, or (open string) a ring around the string name at the nut
 const MARK_RADIUS = 6;
+// A mark with a finger digit in it is drawn bigger, so the digit reads
+const FINGER_MARK_RADIUS = 8;
 const OPEN_MARK_X = LABEL_WIDTH - 14;
 const OPEN_MARK_RADIUS = 9;
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
@@ -69,9 +73,10 @@ function svgElement(tag, attributes, text = null) {
  *   container: The element to draw into.
  *   options.tuning: Open-string MIDI pitches, string 1 first; one line is drawn per string.
  *   options.highestFret: How many frets the neck has.
- *   options.marks: Positions to mark, [{ string, fret, kind, opacity }]: kind picks the colour class
- *     fretboard-mark-<kind>; opacity 0–1, 1 if left out. Fainter marks are drawn first, so a stronger
- *     mark on the same position shows on top; positions off the neck are skipped.
+ *   options.marks: Positions to mark, [{ string, fret, finger, kind, opacity }]: kind picks the colour class
+ *     fretboard-mark-<kind>; opacity 0–1, 1 if left out; a finger (1–4) is written inside the dot. Fainter
+ *     marks are drawn first, so a stronger mark on the same position shows on top; positions off the neck
+ *     are skipped.
  */
 function drawFretboard(container, { tuning, highestFret, marks = [] }) {
   const stringCount = tuning.length;
@@ -117,12 +122,16 @@ function drawFretboard(container, { tuning, highestFret, marks = [] }) {
 
   // Marks: faintest first, strongest on top
   const marksInDrawingOrder = [...marks].sort((a, b) => (a.opacity ?? 1) - (b.opacity ?? 1));
-  for (const { string, fret, kind, opacity = 1 } of marksInDrawingOrder) {
+  for (const { string, fret, finger, kind, opacity = 1 } of marksInDrawingOrder) {
     if (string < 1 || string > stringCount || fret < 0 || fret > highestFret) continue;
     const y = topY + (string - 1) * STRING_GAP;
     const colourClass = `fretboard-mark-${kind}`;
     if (fret === 0) {
       svg.append(svgElement('circle', { class: `fretboard-open-mark ${colourClass}`, cx: OPEN_MARK_X, cy: y, r: OPEN_MARK_RADIUS, 'stroke-opacity': opacity }));
+    } else if (finger) {
+      // Faded dot, digit at full strength so it still reads on a faint mark
+      svg.append(svgElement('circle', { class: `fretboard-mark ${colourClass}`, cx: fretCentreX(fret), cy: y, r: FINGER_MARK_RADIUS, 'fill-opacity': opacity }));
+      svg.append(svgElement('text', { class: `fretboard-finger fretboard-finger-${kind}`, x: fretCentreX(fret), y: y + 3.5 }, finger));
     } else {
       svg.append(svgElement('circle', { class: `fretboard-mark ${colourClass}`, cx: fretCentreX(fret), cy: y, r: MARK_RADIUS, 'fill-opacity': opacity }));
     }
@@ -210,9 +219,15 @@ function updateFretboard(tick = api.tickPosition) {
   drawFretboard(fretboard, { ...guitar, marks });
 }
 
-/** While playing: playback marks. Otherwise the highlighted notes, or (nothing highlighted) the picture where playback stopped. */
+/**
+ * While playing: playback marks. Paused: one clicked note (beat) gets the playback picture at that note; several
+ * highlighted notes are marked orange; nothing highlighted = the picture where playback stopped.
+ */
 function fretboardMarks(tick) {
   if (api.playerState !== alphaTab.synth.PlayerState.Playing) {
+    const single = singleSelectedBeat();
+    const singleTick = single && beatTick(single, tick);
+    if (singleTick !== null && singleTick !== undefined) return playbackMarks(singleTick);
     const selected = selectionPositions();
     if (selected) return selected.map((position) => ({ ...position, kind: 'selected' }));
   }
@@ -223,7 +238,36 @@ function fretboardMarks(tick) {
 
 /** One drawn beat's notes as positions; a rest (or a null symbol) has none. */
 function beatPositions(beat) {
-  return beat.notes.map((note) => ({ string: stringNumberOfNote(note), fret: note.fret }));
+  // alphaTab's leftHandFinger: 1 index … 4 pinky (0 thumb, negative = not written): only 1–4 are shown
+  return beat.notes.map((note) => ({
+    string: stringNumberOfNote(note), fret: note.fret,
+    finger: note.leftHandFinger >= 1 && note.leftHandFinger <= 4 ? note.leftHandFinger : null,
+  }));
+}
+
+/** The one beat highlighted (a passage's notes all on one beat, or the song view's single click), else null. */
+function singleSelectedBeat() {
+  if (shownPassage()) {
+    if (!state.selection.length) return null;
+    const { firstBeatOfNote } = currentBeatMap();
+    const beats = new Set(state.selection.map((index) => firstBeatOfNote[index]).filter(Boolean));
+    return beats.size === 1 ? [...beats][0] : null;
+  }
+  const dragged = state.draggedBeats;
+  if (state.view?.kind !== 'song' || !dragged || dragged.first.voice.bar.staff.track !== api.tracks[0]) return null;
+  return dragged.first.absoluteDisplayStart === dragged.last.absoluteDisplayStart ? dragged.first : null;
+}
+
+/**
+ * The playback tick a drawn beat starts at, or null (no timeline yet, or the beat never plays). A bar played
+ * more than once (repeats) has one start per pass: the one nearest `tick` wins.
+ */
+function beatTick(beat, tick) {
+  const line = currentTimeline();
+  if (!line) return null;
+  const starts = line.sounds.filter((sound) => sound.beat === beat).map((sound) => sound.start);
+  if (!starts.length) return null;
+  return starts.reduce((best, start) => (Math.abs(start - tick) < Math.abs(best - tick) ? start : best));
 }
 
 /**
@@ -251,7 +295,7 @@ function selectionPositions() {
  * Every note of a track in real playing order, all voices, repeats and jumps played out (from alphaTab's
  * tick cache, which lists each bar every time it plays).
  *
- * Returns { sounds, events }: sounds = each beat with notes { start, end, positions } (ticks), tied
+ * Returns { sounds, events }: sounds = each beat with notes { beat, start, end, positions } (ticks), tied
  * continuations included; events = notes starting at the same moment, grouped { start, end, positions }
  * (a tied continuation is not a new event), in time order.
  */
@@ -264,7 +308,7 @@ function buildTimeline(tickCache, track) {
         if (!positions.length) continue;
         const start = playedBar.start + beat.playbackStart;
         const newNotes = beat.notes.some((note) => !note.isTieDestination);
-        sounds.push({ start, end: start + beat.playbackDuration, positions, newNotes });
+        sounds.push({ beat, start, end: start + beat.playbackDuration, positions, newNotes });
       }
     }
   }

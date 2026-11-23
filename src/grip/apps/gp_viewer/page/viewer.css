@@ -69,8 +69,13 @@ input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px s
 .hint { color: var(--muted); font-size: 12px; }
 
 /* ---- Top bar ---- */
-#topbar { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--border); }
-#title-block { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+/* Small screens: the status line gives up its room first, the title keeps a minimum width, and past that the bar
+   wraps onto a second row instead of crushing its parts (nothing inside a part ever wraps) */
+#topbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--border); }
+#topbar > * { flex-shrink: 0; }
+#topbar button, #topbar .hint { white-space: nowrap; }
+#title-block { flex: 1 1 160px; min-width: 160px; display: flex; flex-direction: column; }
+#subtitle, #tuning { white-space: nowrap; }
 #song-title { font-weight: 600; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #subtitle { display: flex; gap: 10px; align-items: center; color: var(--muted); font-size: 12px; }
 #subtitle select { padding: 0 4px; font-size: 12px; border-color: transparent; background: transparent; color: var(--muted); max-width: 260px; }
@@ -78,6 +83,7 @@ input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px s
 #tuning { font-family: ui-monospace, monospace; }
 #realisation-select { max-width: 280px; }
 #realisation-select:disabled { display: none; }
+#topbar > #status { flex: 0 1 auto; min-width: 0; }
 #status { color: var(--muted); font-size: 12px; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #catalogue-select { max-width: 220px; }
 #catalogue-select.empty { color: var(--muted); }
@@ -259,6 +265,7 @@ body.mixer-open:not(.details-open) #mixer-drawer { border-top: none; max-height:
 .fretboard-mark-next { fill: #2a9d3a; stroke: #2a9d3a; }
 /* After the colours, so a ring stays unfilled */
 .fretboard-open-mark { fill: none; stroke-width: 2.5; }
+.fretboard-finger { font: 600 11px system-ui, sans-serif; fill: #fff; text-anchor: middle; pointer-events: none; }
 
 /* ---- Transport bar ---- */
 #transport { display: flex; align-items: center; gap: 12px; padding: 6px 12px; background: var(--panel); border-top: 1px solid var(--border); }
