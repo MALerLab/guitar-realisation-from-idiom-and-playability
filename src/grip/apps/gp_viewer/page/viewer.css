@@ -89,6 +89,11 @@ input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px s
 #catalogue-select.empty { color: var(--muted); }
 #bars-box { display: flex; align-items: center; gap: 4px; }
 #bars-box input { width: 58px; }
+/* Fingers (catalogue view only) */
+#fingers-toggle, #fingers-habit { display: none; }
+body.catalogue-mode #fingers-toggle { display: inline-flex; }
+body.catalogue-mode #fingers-toggle[aria-pressed="true"] + #fingers-habit { display: inline-block; }
+#fingers-toggle[aria-pressed="true"],
 #entries-toggle[aria-pressed="true"] { background: var(--stitch); border-color: var(--stitch); color: var(--stitch-text); }
 .chevron { width: 14px; height: 14px; }
 

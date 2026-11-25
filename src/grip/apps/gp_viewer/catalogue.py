@@ -6,6 +6,8 @@
 - one entry (a layout): its family one note away, and where it turns up (song, track, bar, first + last note)
 - one occurrence as a playable passage: the real notes of that place (rhythm, frets, bends, slides, the tab's
   own pick strokes), in the run-file passage layout the page already draws and plays
+- fingers for the phrase on screen: the hand models work out fingers, hand positions and pick plans with every
+  string and fret kept as shown
 
 Entry tables are small enough to keep in memory; occurrences and notes stay on disk and DuckDB reads only
 what a request needs.
@@ -21,6 +23,11 @@ import duckdb
 import pandas as pd
 
 from grip.apps.gp_viewer.runs import passage_note_positions
+from grip.core.guitar import GuitarSetup, Position
+from grip.core.passage import Note, Passage
+from grip.formats.passage_input import enforced_only, load_articulation_switches
+from grip.formats.run_record import realisation_to_dict
+from grip.pipelines.optimiser_run import finger_pinned_positions
 
 # Note techniques (gp_parser names) → what the page draws
 PICK_STROKE_LETTERS = {"pick_stroke_down": "D", "pick_stroke_up": "U"}
@@ -356,3 +363,37 @@ class CatalogueShelf:
                     self.builds.popitem(last=False)
             self.builds.move_to_end(key)
             return self.builds[key]
+
+
+def phrase_fingers(passage: dict[str, Any], choices: list[dict[str, Any]], run_config_path: Path) -> dict[str, Any]:
+    """The hand models' fingers, hand positions and pick plans for a phrase as shown (strings and frets kept).
+
+    Args:
+        passage: The phrase's passage as the page shows it (occurrence_phrase's layout; pitches as moved).
+        choices: Per note: "string", "fret" (None for a dead note).
+        run_config_path: The run config (hand profile, cost config, articulation switches, habits).
+
+    Returns:
+        {"choices": per note string, fret, finger, hand, stroke_letter (first habit),
+         "pick_plans": [{"habit", "stroke_letters", ...}]} (run-file layout).
+    """
+    phrase = phrase_as_passage(passage, load_articulation_switches(run_config_path))
+    pinned = tuple(None if choice.get("string") is None else Position(int(choice["string"]), int(choice["fret"]))
+                   for choice in choices)
+    realisation = finger_pinned_positions(phrase, pinned, run_config_path)
+    record = realisation_to_dict(realisation, 1, realisation, 0)
+    return {"choices": record["choices"], "pick_plans": record["pick_plans"]}
+
+
+def phrase_as_passage(passage: dict[str, Any], switches: dict[str, bool]) -> Passage:
+    """A phrase passage (run-file layout) as the optimiser's Passage; only switched-on articulations are enforced."""
+    guitar = passage["guitar"]
+    notes = tuple(Note(
+        pitch=note["pitch"], onset_seconds=float(note["onset_seconds"]), duration_seconds=float(note["duration_seconds"]),
+        onset_tick=int(note["onset_tick"]), duration_tick=int(note["duration_tick"]),
+        articulations=frozenset() if note["pitch"] is None else enforced_only(frozenset(note["articulations"]), switches),
+        bar_start=bool(note["bar_start"]), null_reason=None if note["pitch"] is not None else "dead_note",
+    ) for note in passage["notes"])
+    return Passage(name=passage["name"], notes=notes, tempo_bpm=float(passage["tempo_bpm"]),
+                   guitar=GuitarSetup(tuple(int(pitch) for pitch in guitar["tuning"]), int(guitar["highest_fret"]),
+                                      float(guitar["scale_length_mm"])))

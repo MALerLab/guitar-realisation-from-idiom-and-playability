@@ -536,7 +536,8 @@ def last_pick_string_seen(slot: int, position: Position, string_count: int) -> i
 
 def search_realisations(passage: Passage, config: CostConfig, profile: HandProfile, k_best: int,
                         k_search_multiplier: int, habits: tuple[str, ...],
-                        menu: tuple[MenuItem, ...] | None = None) -> list[Realisation]:
+                        menu: tuple[MenuItem, ...] | None = None,
+                        pinned_positions: tuple[Position | None, ...] | None = None) -> list[Realisation]:
     """Find the k cheapest realisations with different fingerings, each with its pick plans.
 
     Args:
@@ -548,8 +549,12 @@ def search_realisations(passage: Passage, config: CostConfig, profile: HandProfi
             fingering are dropped).
         habits: Which pick plans to write per realisation.
         menu: The chooser's menu (catalogue entries placed on this passage); None = the hand models alone.
+        pinned_positions: Per passage event, the one (string, fret) the note must be played at (None for null
+            symbols); the search then only works out fingers, hand positions and pick plans. None = free.
     """
     contexts = build_note_contexts(passage, config)
+    if pinned_positions is not None:
+        contexts = pin_positions(contexts, pinned_positions)
     if not contexts:
         return [Realisation(build_choices(passage, [], []), (), 0.0, (), (), passage)]
     k_routes = k_best * k_search_multiplier
@@ -605,6 +610,25 @@ def search_realisations(passage: Passage, config: CostConfig, profile: HandProfi
         if len(realisations) == k_best:
             break
     return realisations
+
+
+def pin_positions(contexts: list[NoteContext], pinned_positions: tuple[Position | None, ...]) -> list[NoteContext]:
+    """The note contexts with each note's candidate positions cut down to its pinned one.
+
+    Args:
+        contexts: From build_note_contexts.
+        pinned_positions: Per passage event, the position to keep.
+
+    Raises:
+        ValueError: if a pinned position doesn't sound the note's pitch on this guitar.
+    """
+    pinned_contexts = []
+    for context in contexts:
+        position = pinned_positions[context.passage_index]
+        if position not in context.positions:
+            raise ValueError(f"note {context.passage_index + 1} can't be played at {position}")
+        pinned_contexts.append(replace(context, positions=(position,)))
+    return pinned_contexts
 
 
 def initial_values(context: NoteContext, states: list[HandState], slot_count: int, k_routes: int,

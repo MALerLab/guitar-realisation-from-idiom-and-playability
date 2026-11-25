@@ -14,7 +14,7 @@
 // viewer.mjs calls setupCatalogueView once at start.
 
 // What viewer.mjs shares, set once by setupCatalogueView
-let element, remember, recall, statusLabel, openPhrase, setView, showPhrase, openFlagBox, showFlagButton;
+let element, remember, recall, statusLabel, openPhrase, setView, showPhrase, openFlagBox, showFlagButton, postJson;
 // The guitar layouts are drawn on (the optimiser's, string 1 first): places the notes around an open string
 let drawingTuning = [];
 
@@ -51,7 +51,7 @@ let intervalMode = 'first';  // interval paths from the 'first' note (as stored)
  * Returns { openCatalogue, catalogueName, openBuild (the open build's folder), pickEntry (path, entry id) }.
  */
 export function setupCatalogueView(viewer) {
-  ({ element, remember, recall, statusLabel, openPhrase, setView, showPhrase, openFlagBox, showFlagButton } = viewer);
+  ({ element, remember, recall, statusLabel, openPhrase, setView, showPhrase, openFlagBox, showFlagButton, postJson } = viewer);
   drawingTuning = viewer.pageConfig.tuning;
   let searchTimer;
   element('catalogue-length').onchange = () => { remember('catalogueLength', element('catalogue-length').value); showPaths(1); };
@@ -71,6 +71,7 @@ export function setupCatalogueView(viewer) {
   element('shape-string-up').onclick = () => moveShape({ strings: -1 });
   element('shape-string-down').onclick = () => moveShape({ strings: 1 });
   element('shape-reset').onclick = resetShape;
+  setupFingers();
   for (const button of document.querySelectorAll('#interval-mode button')) button.onclick = () => setIntervalMode(button.dataset.intervalMode);
   intervalMode = recall('intervalMode', 'first');
   markIntervalMode();
@@ -459,15 +460,60 @@ function resetShape() {
   playShape();
 }
 
-/** Draw and play the player's shape as moved, and say which layout of this path it now is, if any. */
-function playShape() {
+// ---- Fingers: the hand models' fingers + pick plan on the phrase shown (strings and frets kept) ----
+
+// Bumped by every playShape, so a slow fingers answer for an older shape is dropped
+let shapeRequest = 0;
+
+/** Wire the Fingers toggle and its habit pick (both remembered in this browser). */
+function setupFingers() {
+  const toggle = element('fingers-toggle');
+  const habit = element('fingers-habit');
+  toggle.setAttribute('aria-pressed', recall('fingersShown', '0') === '1' ? 'true' : 'false');
+  habit.value = recall('fingersHabit', habit.value);
+  toggle.onclick = () => {
+    const showing = toggle.getAttribute('aria-pressed') !== 'true';
+    toggle.setAttribute('aria-pressed', String(showing));
+    remember('fingersShown', showing ? '1' : '0');
+    if (catalogue.phrase) playShape();
+  };
+  habit.onchange = () => {
+    remember('fingersHabit', habit.value);
+    if (catalogue.phrase) playShape();
+  };
+}
+
+/**
+ * The shape's choices with the hand models' fingers, hand positions and the picked habit's stroke letters, or
+ * null (the server refused: said in the status line).
+ */
+async function fingeredChoices(shownPassage, choices) {
+  const reply = await postJson('/api/catalogue/fingers', { passage: shownPassage, choices });
+  if (reply.error) {
+    statusLabel.textContent = `Fingers: ${reply.error}`;
+    return null;
+  }
+  const plan = reply.pick_plans.find((pickPlan) => pickPlan.habit === element('fingers-habit').value) ?? reply.pick_plans[0];
+  return reply.choices.map((choice, index) => ({ ...choices[index], finger: choice.finger, hand: choice.hand,
+                                                 stroke_letter: plan?.stroke_letters[index] ?? null }));
+}
+
+/** Draw and play the player's shape as moved (with Fingers on: fingered), and say which layout of this path it
+ *  now is, if any. */
+async function playShape() {
   const { passage, positions } = catalogue.phrase;
   const shape = catalogue.shape;
   const moved = shape.fretShift !== 0 || shape.stringShift !== 0;
   const notes = passage.notes.map((note, index) => ({ ...note, pitch: shape.pitches[index] }));
   const shownPassage = { ...passage, notes };
+  const request = ++shapeRequest;
+  let choices = shape.choices;
+  if (element('fingers-toggle').getAttribute('aria-pressed') === 'true') {
+    choices = await fingeredChoices(shownPassage, shape.choices) ?? shape.choices;
+    if (request !== shapeRequest) return;
+  }
   showPhrase({
-    passage: shownPassage, choices: shape.choices,
+    passage: shownPassage, choices,
     positions: moved ? notes.map((note) => positionsOf(note.pitch, passage.guitar)) : positions,
     label: `${catalogue.entry.entry.layout} · ${passage.name}${moved ? ' (moved)' : ''}`,
   });
