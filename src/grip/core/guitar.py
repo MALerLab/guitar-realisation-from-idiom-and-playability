@@ -4,6 +4,7 @@ pitch can be played (its candidate positions).
 Strings are numbered 1 = thinnest, as in GP and grip/formats/gp_parser.py. Fret 0 = open string.
 """
 
+import math
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -66,6 +67,16 @@ def fret_position_mm(fret: float, scale_length_mm: float) -> float:
         scale_length_mm: Vibrating string length in mm.
     """
     return scale_length_mm * (1 - 2 ** (-fret / 12))
+
+
+def fret_at_position_mm(position_mm: float, scale_length_mm: float) -> float:
+    """The (fractional) fret that sits this far from the nut: fret_position_mm turned around.
+
+    Args:
+        position_mm: Distance from the nut in mm (below the scale length).
+        scale_length_mm: Vibrating string length in mm.
+    """
+    return -12 * math.log2(1 - position_mm / scale_length_mm)
 
 
 def distance_mm(fret_a: float, fret_b: float, scale_length_mm: float) -> float:

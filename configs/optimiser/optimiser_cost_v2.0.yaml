@@ -1,0 +1,21 @@
+# Optimiser cost v2.0, fretting hand half of the bigram table (docs/design_spec_v2.md §4, 2026-11-25).
+# Read by src/grip/optimiser/bigrams.py. Not wired into a run config yet: the v2 search doesn't exist.
+# Starting numbers, to be moved by the blind case study (design_spec_v2 §8). Values carried over from cost v1.3
+# where the knob already existed.
+version: "2.0"
+
+# A bigram's price comes from the gap between its two fingers, in mm, per finger pair (hand profile):
+# squeeze (closer than one finger per fret) → comfy (free) → stretch (up to clean max) → past clean max (hand shift).
+fretting_hand:
+  # Which hand profile string column every string reads its reach from (no per-string reach for now)
+  reach_from_string: 1
+  # Per mm closer than one finger per fret. 0 = the squeeze is free until the case study says otherwise
+  squeeze_per_mm: 0.0
+  # Per mm past the pair's comfy, up to its clean max (as in cost v1.3)
+  stretch_per_mm: 0.02
+  # Hand shift = at_reference × (distance / reference_mm) ** exponent; no time part (time is parked)
+  # exponent > 1: one big leap costs more than small shifts covering the same distance (as in cost v1.3)
+  hand_shift:
+    reference_mm: 30.0
+    at_reference: 1.0
+    exponent: 1.5
