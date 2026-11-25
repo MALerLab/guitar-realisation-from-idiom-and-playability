@@ -71,6 +71,12 @@
   <select id="realisation-select" disabled title="Realisation of the open run"></select>
   <!-- Entries overlay (stitch.mjs): which catalogue entries the tab on screen is made of -->
   <button id="entries-toggle" aria-pressed="false" disabled title="Show which catalogue entries the tab on screen is made of (needs a catalogue)">Entries</button>
+  <!-- Catalogue view only, in Entries' place: the hand models' fingers + pick plan on the phrase shown (catalogue_view.mjs) -->
+  <button id="fingers-toggle" aria-pressed="false" title="Work out fingers and the pick plan for the phrase shown (hand models; strings and frets kept)">Fingers</button>
+  <select id="fingers-habit" title="Which pick plan Fingers draws">
+    <option value="alternate">strict alt</option>
+    <option value="economy">eco</option>
+  </select>
   <span id="status"></span>
   <button id="edit-button" disabled title="Annotate: start from what is shown">Edit</button>
   <button id="save-button" disabled title="Save the annotation as a reference passage">Save</button>

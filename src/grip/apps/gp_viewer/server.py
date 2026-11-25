@@ -30,7 +30,7 @@ from urllib.parse import parse_qs, quote, urlparse
 import yaml
 
 from grip.apps.gp_viewer.annotate import cut_passage, save_reference
-from grip.apps.gp_viewer.catalogue import CatalogueBuild, CatalogueShelf
+from grip.apps.gp_viewer.catalogue import CatalogueBuild, CatalogueShelf, phrase_fingers
 from grip.apps.gp_viewer.datasets import DatasetIndex, resolve_inside
 from grip.apps.gp_viewer.flags import FlagStore
 from grip.apps.gp_viewer.optimiser_view import cost_knobs, lr_knob_sweep, save_preset
@@ -391,6 +391,14 @@ def entries(app: ViewerApp, body: dict[str, Any]) -> dict[str, Any]:
                                app.run_config_path)
 
 
+def catalogue_fingers(app: ViewerApp, body: dict[str, Any]) -> dict[str, Any]:
+    """Fingers, hand positions and pick plans for the catalogue player's phrase as shown (see
+    catalogue.phrase_fingers); body = {"passage", "choices"}. Nothing is saved."""
+    if not isinstance(body.get("passage"), dict) or not isinstance(body.get("choices"), list):
+        raise ValueError("send the phrase's passage and choices")
+    return phrase_fingers(body["passage"], body["choices"], app.run_config_path)
+
+
 def passage_for_annotating(app: ViewerApp, body: dict[str, Any]) -> dict[str, Any]:
     """A passage + the source tab's draft for annotate mode (see annotate.cut_passage)."""
     return cut_passage(body, app.datasets, app.run_config_path)
@@ -439,6 +447,7 @@ POST_ROUTES: dict[str, Callable[[ViewerApp, dict[str, Any]], Any]] = {
     "/api/optimise": optimise,
     "/api/stitch": stitch,
     "/api/entries": entries,
+    "/api/catalogue/fingers": catalogue_fingers,
     "/api/passage": passage_for_annotating,
     "/api/reference": reference,
     "/api/flags": set_flags,

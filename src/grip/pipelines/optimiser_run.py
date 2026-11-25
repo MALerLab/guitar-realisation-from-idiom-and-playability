@@ -16,7 +16,7 @@ import yaml
 
 from grip.catalogue.menu import (gp_line_events, load_build_counting, load_entries, midi_line_events, passage_line,
                                  passage_menu)
-from grip.core.guitar import load_guitar_setup
+from grip.core.guitar import Position, load_guitar_setup
 from grip.core.hand import load_hand_profile
 from grip.core.menu import MenuItem
 from grip.core.passage import Passage
@@ -201,6 +201,22 @@ def run_search(source: dict, k_best: int | None, comment: str | None,
                               run_config_path)
     record["chooser"] = chooser_summary(run_config, menu)
     return realisations, record
+
+
+def finger_pinned_positions(passage: Passage, pinned_positions: tuple[Position | None, ...],
+                            run_config_path: Path) -> Realisation:
+    """The hand models' fingers, hand positions and pick plans for a passage whose strings and frets are fixed.
+
+    Args:
+        passage: The passage.
+        pinned_positions: Per passage event, its (string, fret); None for null symbols.
+        run_config_path: The run config (cost config, hand profile, habits, search width).
+    """
+    run_config = load_run_config(run_config_path)
+    return search_realisations(passage, load_cost_config(run_config["cost_config"]),
+                               load_hand_profile(run_config["hand_profile"]), 1,
+                               run_config["search"]["k_search_multiplier"], tuple(run_config["pick_plans"]["habits"]),
+                               pinned_positions=pinned_positions)[0]
 
 
 def merge_cost_overrides(cost_config: dict, cost_overrides: dict) -> dict:
